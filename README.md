@@ -23,31 +23,34 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 
 ## 安装和认证
 
-在仓库根目录执行：
+### 1. 安装依赖
+
+在 PowerShell 中进入仓库目录并同步依赖：
 
 ```powershell
+Set-Location D:\Code\Wiki-MCP-Local
 uv sync
 ```
 
-将 Confluence 根地址设置为 `ATLASSIAN_CONFLUENCE_URL`。地址需要包含部署时使用的上下文路径，例如 `https://wiki.example.com/confluence`；不要把 `/rest/api` 加到地址末尾。
+### 2. 保存 Confluence PAT
 
-```powershell
-$env:ATLASSIAN_CONFLUENCE_URL = "https://wiki.example.com/confluence"
-```
-
-推荐使用 Confluence Personal Access Token（PAT）。在当前 Windows 用户的凭据库中安全保存 PAT；输入内容不会显示：
+推荐使用 Confluence Personal Access Token（PAT）。运行下面的命令后，在隐藏输入提示中粘贴 PAT；它会保存到当前 Windows 用户的 Credential Manager，不会写入仓库或 Codex 配置：
 
 ```powershell
 uv run confluence-mcp-store-pat
 ```
 
-该命令把 PAT 存到当前用户操作系统凭据库（Windows Credential Manager）。MCP 进程在相同 Windows 用户下运行时会读取它。也可用环境变量 `ATLASSIAN_CONFLUENCE_PAT` 提供 PAT；环境变量优先于凭据库。Basic Auth 可通过 `ATLASSIAN_CONFLUENCE_USERNAME` 与 `ATLASSIAN_CONFLUENCE_PASSWORD` 同时设置。
+同一 Windows 用户启动的 MCP 进程会从系统凭据库读取 PAT。也可使用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；它优先于凭据库。Basic Auth 可同时设置 `ATLASSIAN_CONFLUENCE_USERNAME` 和 `ATLASSIAN_CONFLUENCE_PASSWORD`。不要将 PAT 或密码写入 `config.toml`。
 
-如果公司使用内部 CA，将证书包路径放在 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`。TLS 证书验证默认开启，不要通过关闭验证来绕过企业证书配置。
+### 3. 注册到 Codex Desktop
 
-## 注册到 Codex Desktop
+Codex Desktop、Codex CLI 与 IDE 扩展共用个人配置文件：
 
-Codex Desktop、Codex CLI 与 IDE 扩展共用 MCP 配置。打开 Codex 设置中的 `config.toml`，合并以下配置，并替换 Confluence 地址：
+```text
+%USERPROFILE%\.codex\config.toml
+```
+
+先保留文件中的现有内容，再把下面配置追加到文件末尾；不要用此示例覆盖整个配置文件：
 
 ```toml
 [mcp_servers.confluence_readonly]
@@ -61,8 +64,15 @@ tool_timeout_sec = 60
 ATLASSIAN_CONFLUENCE_URL = "https://wiki.example.com/confluence"
 ```
 
-PAT 不写入 `config.toml`。在 Codex Desktop 的 MCP 设置中重启/刷新服务器；随后可从工具列表调用 `search_pages`、`get_page` 和 `get_page_by_title`。项目级配置也可放在仓库的 `.codex/config.toml`，但只会在 Codex 信任该项目时加载。
+将示例地址替换成你们 Confluence 的站点根地址，并包含部署使用的上下文路径（如有）；不要在地址后加 `/rest/api`。如果 Codex 找不到 `uv`，将 `command` 替换为 `uv.exe` 的绝对路径。
 
+也可以在 Codex Desktop 打开 **Settings → MCP Servers → Add Server**，选择 **STDIO**，配置命令、参数、工作目录和环境变量。保存后重启/刷新 MCP 服务器。CLI 可用 `codex mcp list` 查看登记状态。
+
+### 4. 确认连接
+
+在 Codex 的 MCP 工具列表中确认出现 `search_pages`、`get_page` 和 `get_page_by_title`。调用 `search_pages` 搜索一个有权限查看的词，或调用 `get_page` 读取 Page ID。MCP 运行机器必须能通过公司网络/VPN 访问 Confluence。
+
+若公司使用内部 CA，将证书包路径设置到 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`；TLS 验证默认开启，不要关闭验证。服务不会自动读取 `.env` 文件。
 ## 常用调用
 
 - 查找页面：`search_pages(query="发布流程", space_key="OPS", limit=10)`
