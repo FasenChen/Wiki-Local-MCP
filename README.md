@@ -7,6 +7,9 @@
 - `search_pages`：按页面正文/标题中的文本查找页面，可限定 Space Key。
 - `get_page`：按 Page ID 读取页面。
 - `get_page_by_title`：按精确标题读取页面；重名时要求提供 Space Key。
+- `cql_search`：直接执行 CQL，支持标签、时间、作者、空间组合查询；返回 excerpt 与分页 `next_start`。
+- `get_page_outline`：只返回 h1–h6 标题树，适合先看结构再决定读哪一节。
+- `get_page` 新增 `section` 与 `max_chars`：按标题只读一节；超长内容截断并返回 `truncated`。
 - 页面内容可返回 Markdown、Confluence 渲染 HTML 或原始 storage XHTML。
 
 页面 ID 可从页面链接中的 `pageId` 参数，或从 `.../pages/<数字>/...` 路径中取得。也可以先用 `search_pages` 或 `get_page_by_title` 查找页面。
@@ -28,7 +31,7 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 在 PowerShell 中进入仓库目录并同步依赖：
 
 ```powershell
-Set-Location D:\Code\Wiki-MCP-Local
+Set-Location D:\Code\Wiki-Local-MCP
 uv sync
 ```
 
@@ -56,7 +59,7 @@ Codex Desktop、Codex CLI 与 IDE 扩展共用个人配置文件：
 [mcp_servers.confluence_readonly]
 command = "uv"
 args = ["run", "confluence-mcp"]
-cwd = "D:\\Code\\Wiki-MCP-Local"
+cwd = "D:\\Code\\Wiki-Local-MCP"
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 
@@ -79,6 +82,12 @@ ATLASSIAN_CONFLUENCE_URL = "https://wiki.example.com/confluence"
 - 读取页面并转 Markdown：`get_page(page_id="123456", output_format="markdown")`
 - 按标题读取并转 HTML：`get_page_by_title(title="发布流程", space_key="OPS", output_format="html")`
 - 返回 Confluence 原始存储格式：`get_page(page_id="123456", output_format="storage")`
+- 按标签检索：`cql_search(cql='label = "release" and lastmodified > now("-7d")')`
+- 看页面结构：`get_page_outline(page_id="123456")`
+- 只读一节：`get_page(page_id="123456", section="部署步骤")`
+- 限制长度：`get_page(page_id="123456", max_chars=4000)`
+
+`section` 只支持 `markdown` / `storage` 输出；`html` 是整个 `body.view`，无法按章节切分。
 
 `html` 返回 Confluence 的 `body.view` 渲染片段；如果服务器未提供该扩展，则回退到 `body.storage`。`markdown` 从 storage XHTML 转换；Confluence 专有宏、图表和应用宏可能无法完全映射为 Markdown，需以 HTML 或原页面查看其渲染结果。
 
