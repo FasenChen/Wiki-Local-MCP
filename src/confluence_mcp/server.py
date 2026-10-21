@@ -344,6 +344,57 @@ def create_page(
 
 
 @mcp.tool()
+def add_comment(
+    page_id: str,
+    content_markdown: str,
+    parent_comment_id: str | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Add a page comment from Markdown. Defaults to a dry run that posts nothing."""
+    if not content_markdown.strip():
+        raise ValueError("content_markdown must not be empty.")
+    if parent_comment_id is not None and not parent_comment_id.isdigit():
+        raise ValueError("parent_comment_id must contain only digits.")
+
+    client = get_client()
+    page = client.get_page(page_id)
+    space_key = (page.get("space") or {}).get("key")
+    ensure_write_allowed(space_key)
+
+    storage = markdown_to_storage(content_markdown)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "action": "add_comment",
+            "target": {"page_id": page_id, "parent_comment_id": parent_comment_id},
+            "storage_preview": storage[:4000],
+        }
+
+    payload: dict[str, Any] = {
+        "type": "comment",
+        "container": {"id": page_id, "type": "page"},
+        "body": {"storage": {"representation": "storage", "value": storage}},
+    }
+    if parent_comment_id is not None:
+        payload["ancestors"] = [{"id": parent_comment_id}]
+    created = client.create_content(payload)
+    audit_write(
+        "add_comment",
+        page_id=page_id,
+        space_key=space_key,
+        version_before=None,
+        version_after=None,
+        result="created",
+    )
+    return {
+        "dry_run": False,
+        "comment_id": str(created.get("id", "")),
+        "page_id": page_id,
+        "url": client.page_url(created),
+    }
+
+
+@mcp.tool()
 def get_page_outline(page_id: str) -> dict[str, Any]:
     """List the h1-h6 headings of a page without returning its body."""
     client = get_client()
