@@ -113,6 +113,33 @@ def cql_search(cql: str, limit: int = 25, start: int = 0) -> dict[str, Any]:
 
 
 @mcp.tool()
+def list_spaces(limit: int = 50, start: int = 0) -> dict[str, Any]:
+    """List global Confluence spaces visible to the current account."""
+    if not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100.")
+    if start < 0:
+        raise ValueError("start must be zero or greater.")
+
+    client = get_client()
+    payload = client.list_spaces(limit=limit, start=start)
+    results = payload.get("results", [])
+    # `/rest/api/space` returns `size` as the page size, not the total; a full page implies more.
+    has_more = len(results) == limit
+    return {
+        "spaces": [
+            {
+                "key": space.get("key", ""),
+                "name": space.get("name", ""),
+                "url": client.absolute_url((space.get("_links") or {}).get("webui")),
+            }
+            for space in results
+        ],
+        "count": len(results),
+        "next_start": start + len(results) if has_more else None,
+    }
+
+
+@mcp.tool()
 def get_page_outline(page_id: str) -> dict[str, Any]:
     """List the h1-h6 headings of a page without returning its body."""
     client = get_client()
