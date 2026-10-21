@@ -24,4 +24,4 @@ def test_write_tools_are_hidden_by_default(monkeypatch):
 def test_write_tools_appear_when_enabled(monkeypatch):
     names = _registered_tool_names(monkeypatch, "true")
 
-    assert {"create_page", "add_comment"} <= names
+    assert {"create_page", "add_comment", "update_page", "update_page_section"} <= names

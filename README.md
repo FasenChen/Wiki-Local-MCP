@@ -15,6 +15,7 @@
 - `get_children`：读取子页面树，最多 3 层，单次调用总节点上限 200。
 - `get_page_history`：列出版本历史，或对两个版本做 Markdown diff（默认 4000 字符上限）。8.5.15 实测 `/rest/api/content/{id}/version` 可用；不可用时自动回退到 `/rest/experimental`。
 - `create_page` / `add_comment`（需开启写操作）：从 Markdown 创建页面或评论；默认 `dry_run=true`，只返回预览。
+- `update_page` / `update_page_section`（需开启写操作）：整页或单节更新；必须传 `expected_version`，整页 Markdown 更新默认拒绝含宏页面，单节更新只替换目标章节。
 - 页面内容可返回 Markdown、Confluence 渲染 HTML 或原始 storage XHTML。
 
 页面 ID 可从页面链接中的 `pageId` 参数，或从 `.../pages/<数字>/...` 路径中取得。也可以先用 `search_pages` 或 `get_page_by_title` 查找页面。
@@ -95,7 +96,7 @@ CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
 所有写工具默认 `dry_run=true`：只返回将要发生的变更（目标、storage 预览），
 调用方确认后再传 `dry_run=false`。真实写入会追加到
 `%USERPROFILE%\.confluence-mcp\audit.log`（JSON Lines，不含页面正文和 PAT）。
-修改页面时必须提供 `expected_version`，版本不一致会直接报冲突。
+修改页面时必须提供 `expected_version`，版本不一致会直接报冲突。日常修改优先用 `update_page_section`：它只替换目标章节，页面其余宏和章节原样保留。
 
 ## 常用调用
 

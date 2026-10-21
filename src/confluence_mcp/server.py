@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from .client import ConfluenceAPIError, get_client, quote_cql
 from .conversion import storage_to_markdown
 from .markdown_storage import contains_macro, markdown_to_storage
-from .outline import extract_section, find_headings
+from .outline import extract_section, find_headings, replace_section
 from .writes import audit_write, ensure_write_allowed, writes_enabled
 
 mcp = FastMCP("confluence")
@@ -265,6 +265,83 @@ def get_page_history(
     result["diff"] = diff[:max_chars]
     result["truncated"] = len(diff) > max_chars
     return result
+
+
+def update_page_section(
+    page_id: str,
+    section_title: str,
+    new_content_markdown: str,
+    expected_version: int,
+    dry_run: bool = True,
+    change_message: str = "",
+    max_chars: int = 4000,
+) -> dict[str, Any]:
+    """Replace one heading section, preserving the rest of the page byte for byte."""
+    section_title = section_title.strip()
+    if not section_title:
+        raise ValueError("section_title must not be empty.")
+    if expected_version < 1:
+        raise ValueError("expected_version must be at least 1.")
+    if max_chars < 1:
+        raise ValueError("max_chars must be at least 1.")
+
+    client = get_client()
+    page = client.get_page(page_id)
+    space_key = (page.get("space") or {}).get("key")
+    ensure_write_allowed(space_key)
+
+    current = (page.get("version") or {}).get("number")
+    if current != expected_version:
+        raise ConfluenceAPIError(
+            f"Version conflict: current version is {current}, expected_version was {expected_version}. "
+            "Re-read the page and retry."
+        )
+
+    old_storage = _storage(page)
+    heading, body = extract_section(old_storage, section_title)
+    new_body = markdown_to_storage(new_content_markdown)
+    new_storage = replace_section(old_storage, section_title, new_body)
+
+    old_section = old_storage[heading.start : heading.end] + body
+    new_section = old_storage[heading.start : heading.end] + new_body
+    diff = _unified_diff(
+        storage_to_markdown(old_section),
+        storage_to_markdown(new_section),
+        f"v{current} {section_title}",
+        f"v{current + 1} {section_title}",
+    )
+    if dry_run:
+        return {
+            "dry_run": True,
+            "page_id": page_id,
+            "section_title": heading.title,
+            "version_before": current,
+            "version_after": current + 1,
+            "diff": diff[:max_chars],
+            "truncated": len(diff) > max_chars,
+            "storage_preview": new_section[:max_chars],
+        }
+
+    payload = {
+        "id": page_id,
+        "type": "page",
+        "title": page.get("title", ""),
+        "version": {
+            "number": current + 1,
+            "message": f"[MCP] {change_message}".strip(),
+        },
+        "body": {"storage": {"representation": "storage", "value": new_storage}},
+    }
+    updated = client.update_page(page_id, payload)
+    audit_write(
+        "update_page_section",
+        page_id=page_id,
+        space_key=space_key,
+        version_before=current,
+        version_after=current + 1,
+        result="updated",
+    )
+    return {"dry_run": False, **_page_summary(updated, client)}
 
 
 def update_page(
@@ -567,7 +644,7 @@ def get_page_by_title(
 
 
 def register_write_tools(server: FastMCP) -> None:
-    for tool in (create_page, add_comment):
+    for tool in (create_page, add_comment, update_page, update_page_section):
         server.tool()(tool)
 
 
