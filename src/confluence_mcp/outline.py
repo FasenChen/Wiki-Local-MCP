@@ -64,3 +64,13 @@ def extract_section(storage: str, title: str) -> tuple[Heading, str]:
             end = candidate.start
             break
     return heading, storage[heading.end : end]
+
+
+def replace_section(storage: str, title: str, new_body_storage: str) -> str:
+    heading, body = extract_section(storage, title)
+    if any(item.level <= heading.level for item in find_headings(new_body_storage)):
+        raise ValueError(
+            f"New content must not contain headings at level {heading.level} or higher; "
+            "it would break the section boundary."
+        )
+    return storage[: heading.end] + new_body_storage + storage[heading.end + len(body) :]

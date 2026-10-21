@@ -1,6 +1,6 @@
 import pytest
 
-from confluence_mcp.outline import extract_section, find_headings
+from confluence_mcp.outline import extract_section, find_headings, replace_section
 
 
 def test_find_headings_returns_level_title_and_anchor():
@@ -59,3 +59,44 @@ def test_extract_section_lists_available_titles_when_missing():
 
     with pytest.raises(ValueError, match="Available sections: A, B"):
         extract_section(storage, "C")
+
+
+def test_replace_section_keeps_heading_and_following_sections():
+    storage = '<h2>Setup</h2><p>old</p><h2>Notes</h2><p>keep</p>'
+
+    updated = replace_section(storage, "Setup", "<p>new</p>")
+
+    assert updated == '<h2>Setup</h2><p>new</p><h2>Notes</h2><p>keep</p>'
+
+
+def test_replace_section_preserves_macros_outside_the_section():
+    storage = (
+        '<ac:structured-macro ac:name="toc"/>'
+        '<h2>Setup</h2><p>old</p>'
+        '<h2>Notes</h2><p>keep</p>'
+    )
+
+    updated = replace_section(storage, "Setup", "<p>new</p>")
+
+    assert '<ac:structured-macro ac:name="toc"/>' in updated
+    assert updated.startswith('<ac:structured-macro ac:name="toc"/><h2>Setup</h2><p>new</p>')
+    assert updated.endswith("<h2>Notes</h2><p>keep</p>")
+
+
+def test_replace_section_allows_clearing_the_body():
+    storage = "<h2>Setup</h2><p>old</p>"
+
+    assert replace_section(storage, "Setup", "") == "<h2>Setup</h2>"
+
+
+def test_replace_section_rejects_same_level_heading_in_new_body():
+    with pytest.raises(ValueError, match="level 2"):
+        replace_section("<h2>Setup</h2><p>old</p>", "Setup", "<h2>Other</h2>")
+
+
+def test_replace_section_allows_deeper_headings_in_new_body():
+    storage = "<h2>Setup</h2><p>old</p>"
+
+    updated = replace_section(storage, "Setup", "<h3>Step 1</h3><p>go</p>")
+
+    assert updated == "<h2>Setup</h2><h3>Step 1</h3><p>go</p>"
