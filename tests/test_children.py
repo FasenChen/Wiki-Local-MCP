@@ -38,3 +38,12 @@ def test_get_children_stops_at_node_cap(fake_client, monkeypatch):
     result = server.get_children("1", depth=3)
 
     assert result["truncated"] is True
+
+
+def test_get_children_flags_truncated_when_level_hits_limit(fake_client):
+    fake_client.children = {"1": [_page("2", "A"), _page("3", "B")]}
+
+    result = server.get_children("1", depth=1, limit=1)
+
+    assert len(result["children"]) == 1
+    assert result["truncated"] is True

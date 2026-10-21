@@ -49,6 +49,19 @@ def test_list_versions_does_not_swallow_permission_errors():
         OnlyExperimentalForbiddenClient().list_versions("42")
 
 
+class AlwaysNotFoundClient(ConfluenceClient):
+    def __init__(self):
+        pass
+
+    def _get_json(self, path, *, params):
+        raise ConfluenceAPIError("not found", status_code=404)
+
+
+def test_list_versions_error_mentions_page_not_found():
+    with pytest.raises(ConfluenceAPIError, match="page may not exist"):
+        AlwaysNotFoundClient().list_versions("42")
+
+
 def _page(version, storage):
     return {
         "id": "42",
@@ -107,3 +120,10 @@ def test_get_page_history_requires_both_versions(fake_client):
 def test_get_page_history_rejects_invalid_versions(fake_client, kwargs):
     with pytest.raises(ValueError):
         server.get_page_history("42", **kwargs)
+
+
+def test_get_page_history_rejects_missing_version(fake_client):
+    fake_client.versions["42"] = [{"number": 2}, {"number": 1}]
+
+    with pytest.raises(ValueError, match="does not exist"):
+        server.get_page_history("42", from_version=99, to_version=2)

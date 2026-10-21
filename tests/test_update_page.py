@@ -107,3 +107,11 @@ def test_update_page_rejects_empty_content(fake_client, monkeypatch):
 
     with pytest.raises(ValueError, match="content"):
         server.update_page("42", expected_version=3, content="   ")
+
+
+def test_update_page_rejects_empty_storage_content(fake_client, monkeypatch):
+    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+    fake_client.pages["42"] = page()
+
+    with pytest.raises(ValueError, match="content"):
+        server.update_page("42", expected_version=3, content="", content_format="storage")

@@ -45,7 +45,12 @@ class FakeClient:
 
     def get_page_version(self, page_id, version):
         self.search_calls.append(("version", page_id, version))
-        return self.historical_pages[(page_id, version)]
+        try:
+            return self.historical_pages[(page_id, version)]
+        except KeyError:
+            from confluence_mcp.client import ConfluenceAPIError
+
+            raise ConfluenceAPIError("not found", status_code=404) from None
 
     def create_content(self, payload):
         self.created.append(payload)

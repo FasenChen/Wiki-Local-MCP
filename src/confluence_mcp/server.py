@@ -205,7 +205,10 @@ def get_children(page_id: str, depth: int = 1, limit: int = 50) -> dict[str, Any
     def build(current_id: str, levels_left: int) -> list[dict[str, Any]]:
         nonlocal truncated
         nodes = []
-        for child in client.get_child_pages(current_id, limit=limit):
+        children = client.get_child_pages(current_id, limit=limit)
+        if len(children) == limit:
+            truncated = True
+        for child in children:
             if budget[0] <= 0:
                 truncated = True
                 break
@@ -217,6 +220,15 @@ def get_children(page_id: str, depth: int = 1, limit: int = 50) -> dict[str, Any
         return nodes
 
     return {"page_id": page_id, "children": build(page_id, depth), "truncated": truncated}
+
+
+def _version_page(client: Any, page_id: str, version: int) -> dict[str, Any]:
+    try:
+        return client.get_page_version(page_id, version)
+    except ConfluenceAPIError as exc:
+        if exc.status_code == 404:
+            raise ValueError(f"Version {version} does not exist for page {page_id}.") from exc
+        raise
 
 
 @mcp.tool()
@@ -254,8 +266,8 @@ def get_page_history(
     if from_version is None:
         return result
 
-    old_storage = _storage(client.get_page_version(page_id, from_version))
-    new_storage = _storage(client.get_page_version(page_id, to_version or from_version))
+    old_storage = _storage(_version_page(client, page_id, from_version))
+    new_storage = _storage(_version_page(client, page_id, to_version))
     diff = _unified_diff(
         storage_to_markdown(old_storage),
         storage_to_markdown(new_storage),
@@ -362,8 +374,8 @@ def update_page(
         raise ValueError("max_chars must be at least 1.")
     if content_format not in {"markdown", "storage"}:
         raise ValueError('content_format must be "markdown" or "storage".')
-    if content_format == "markdown" and not content.strip():
-        raise ValueError("content must not be empty when content_format is markdown.")
+    if not content.strip():
+        raise ValueError("content must not be empty.")
 
     client = get_client()
     page = client.get_page(page_id)

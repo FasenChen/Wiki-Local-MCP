@@ -168,8 +168,8 @@ class ConfluenceClient:
                     raise
                 last_error = exc
         raise ConfluenceAPIError(
-            "Confluence exposes no version-history endpoint at /rest/api/content/{id}/version "
-            "or /rest/experimental/content/{id}/version.",
+            "Confluence exposed no version-history endpoint at /rest/api/content/{id}/version "
+            "or /rest/experimental/content/{id}/version, and the page may not exist.",
             status_code=last_error.status_code if last_error else None,
         )
 
