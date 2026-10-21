@@ -139,6 +139,41 @@ def list_spaces(limit: int = 50, start: int = 0) -> dict[str, Any]:
     }
 
 
+def _comment_parent(comment: dict[str, Any]) -> str | None:
+    comment_ancestors = [
+        ancestor for ancestor in comment.get("ancestors") or [] if ancestor.get("type") == "comment"
+    ]
+    if not comment_ancestors:
+        return None
+    return str(comment_ancestors[-1].get("id", ""))
+
+
+@mcp.tool()
+def get_comments(page_id: str, limit: int = 50) -> dict[str, Any]:
+    """Read page comments as Markdown, preserving reply parents."""
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50.")
+
+    client = get_client()
+    comments = client.get_comments(page_id, limit=limit)
+    return {
+        "comments": [
+            {
+                "comment_id": str(comment.get("id", "")),
+                "author": ((comment.get("history") or {}).get("createdBy") or {}).get("displayName"),
+                "created": (comment.get("history") or {}).get("createdDate"),
+                "parent_comment_id": _comment_parent(comment),
+                "content": _convert_storage(
+                    ((comment.get("body") or {}).get("storage") or {}).get("value") or "",
+                    "markdown",
+                ),
+            }
+            for comment in comments
+        ],
+        "count": len(comments),
+    }
+
+
 @mcp.tool()
 def get_page_outline(page_id: str) -> dict[str, Any]:
     """List the h1-h6 headings of a page without returning its body."""

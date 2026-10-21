@@ -134,6 +134,18 @@ class ConfluenceClient:
     def list_spaces(self, *, limit: int, start: int) -> dict[str, Any]:
         return self._get_json("space", params={"type": "global", "limit": limit, "start": start})
 
+    def get_comments(self, page_id: str, *, limit: int) -> list[dict[str, Any]]:
+        self._validate_page_id(page_id)
+        payload = self._get_json(
+            f"content/{page_id}/child/comment",
+            params={
+                "expand": "body.storage,version,history",
+                "depth": "all",
+                "limit": limit,
+            },
+        )
+        return payload.get("results", [])
+
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         # This is the only HTTP operation in the client. No write method is exposed.
         try:
