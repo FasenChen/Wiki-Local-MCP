@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "confluence-readonly-mcp"
-version = "0.2.0"
-description = "Read-only MCP server for on-premises Atlassian Confluence Data Center"
+name = "confluence-mcp"
+version = "0.3.0"
+description = "MCP server for on-premises Atlassian Confluence Data Center"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

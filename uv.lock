@@ -202,8 +202,8 @@ wheels = [
 ]
 
 [[package]]
-name = "confluence-readonly-mcp"
-version = "0.2.0"
+name = "confluence-mcp"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

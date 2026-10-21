@@ -11,9 +11,9 @@ from .client import ConfluenceAPIError, get_client, quote_cql
 from .conversion import storage_to_markdown
 from .markdown_storage import markdown_to_storage
 from .outline import extract_section, find_headings
-from .writes import audit_write, ensure_write_allowed
+from .writes import audit_write, ensure_write_allowed, writes_enabled
 
-mcp = FastMCP("confluence-readonly")
+mcp = FastMCP("confluence")
 OutputFormat = Literal["markdown", "html", "storage"]
 MAX_CHILD_NODES = 200
 
@@ -267,7 +267,6 @@ def get_page_history(
     return result
 
 
-@mcp.tool()
 def create_page(
     space_key: str,
     title: str,
@@ -343,7 +342,6 @@ def create_page(
     }
 
 
-@mcp.tool()
 def add_comment(
     page_id: str,
     content_markdown: str,
@@ -478,6 +476,15 @@ def get_page_by_title(
         "format": output_format,
         "content": _page_content(page, output_format),
     }
+
+
+def register_write_tools(server: FastMCP) -> None:
+    for tool in (create_page, add_comment):
+        server.tool()(tool)
+
+
+if writes_enabled():
+    register_write_tools(mcp)
 
 
 def main() -> None:
