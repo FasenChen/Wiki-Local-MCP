@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .client import ConfluenceAPIError, get_client, quote_cql
 from .conversion import storage_to_markdown
+from .outline import find_headings
 
 mcp = FastMCP("confluence-readonly")
 OutputFormat = Literal["markdown", "html", "storage"]
@@ -104,6 +105,21 @@ def cql_search(cql: str, limit: int = 25, start: int = 0) -> dict[str, Any]:
         "results": [_search_result_summary(item, client) for item in results],
         "count": len(results),
         "next_start": start + len(results) if has_more else None,
+    }
+
+
+@mcp.tool()
+def get_page_outline(page_id: str) -> dict[str, Any]:
+    """List the h1-h6 headings of a page without returning its body."""
+    client = get_client()
+    page = client.get_page(page_id)
+    storage = ((page.get("body") or {}).get("storage") or {}).get("value") or ""
+    return {
+        **_page_summary(page, client),
+        "headings": [
+            {"level": heading.level, "title": heading.title, "anchor": heading.anchor}
+            for heading in find_headings(storage)
+        ],
     }
 
 
