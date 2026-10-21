@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .client import ConfluenceAPIError, get_client, quote_cql
 from .conversion import storage_to_markdown
-from .outline import find_headings
+from .outline import extract_section, find_headings
 
 mcp = FastMCP("confluence-readonly")
 OutputFormat = Literal["markdown", "html", "storage"]
@@ -35,18 +35,22 @@ def _page_summary(page: dict[str, Any], client: Any) -> dict[str, Any]:
     }
 
 
+def _convert_storage(storage: str, output_format: OutputFormat) -> str:
+    if output_format == "storage":
+        return storage
+    if not storage:
+        raise ConfluenceAPIError("The page has no storage body available to convert to Markdown.")
+    return storage_to_markdown(storage)
+
+
 def _page_content(page: dict[str, Any], output_format: OutputFormat) -> str:
     body = page.get("body") or {}
     storage = (body.get("storage") or {}).get("value") or ""
-    if output_format == "storage":
-        return storage
     if output_format == "html":
         # `view` is rendered by Confluence and usually includes macro output.
         # Storage is a useful fallback for deployments that do not expand `body.view`.
         return (body.get("view") or {}).get("value") or storage
-    if not storage:
-        raise ConfluenceAPIError("The page has no storage body available to convert to Markdown.")
-    return storage_to_markdown(storage)
+    return _convert_storage(storage, output_format)
 
 
 @mcp.tool()
@@ -124,14 +128,40 @@ def get_page_outline(page_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def get_page(page_id: str, output_format: OutputFormat = "markdown") -> dict[str, Any]:
-    """Read one Confluence page by ID as Markdown, rendered HTML, or storage XHTML."""
+def get_page(
+    page_id: str,
+    output_format: OutputFormat = "markdown",
+    section: str | None = None,
+    max_chars: int | None = None,
+) -> dict[str, Any]:
+    """Read one Confluence page, optionally only one section, with an optional length cap."""
+    if max_chars is not None and max_chars < 1:
+        raise ValueError("max_chars must be at least 1.")
+
     client = get_client()
     page = client.get_page(page_id)
+    storage = ((page.get("body") or {}).get("storage") or {}).get("value") or ""
+
+    if section is not None:
+        if output_format == "html":
+            raise ValueError(
+                'section is only supported with output_format "markdown" or "storage".'
+            )
+        heading, body = extract_section(storage, section)
+        content = _convert_storage(storage[heading.start : heading.end] + body, output_format)
+    else:
+        content = _page_content(page, output_format)
+
+    truncated = False
+    if max_chars is not None:
+        truncated = len(content) > max_chars
+        content = content[:max_chars]
+
     return {
         **_page_summary(page, client),
         "format": output_format,
-        "content": _page_content(page, output_format),
+        "content": content,
+        "truncated": truncated,
     }
 
 
