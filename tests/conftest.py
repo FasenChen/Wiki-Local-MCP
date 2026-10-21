@@ -9,6 +9,8 @@ class FakeClient:
         self.spaces_response = {"results": [], "size": 0}
         self.comments = {}
         self.children = {}
+        self.versions = {}
+        self.historical_pages = {}
 
     def get_page(self, page_id):
         return self.pages[page_id]
@@ -32,6 +34,14 @@ class FakeClient:
     def get_child_pages(self, page_id, *, limit):
         self.search_calls.append(("children", page_id, limit))
         return self.children.get(page_id, [])[:limit]
+
+    def list_versions(self, page_id):
+        self.search_calls.append(("versions", page_id, 0))
+        return self.versions.get(page_id, [])
+
+    def get_page_version(self, page_id, version):
+        self.search_calls.append(("version", page_id, version))
+        return self.historical_pages[(page_id, version)]
 
     def absolute_url(self, path):
         return f"https://wiki.example.com{path}"

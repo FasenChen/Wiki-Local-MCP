@@ -154,6 +154,36 @@ class ConfluenceClient:
         )
         return payload.get("results", [])
 
+    def list_versions(self, page_id: str) -> list[dict[str, Any]]:
+        self._validate_page_id(page_id)
+        last_error: ConfluenceAPIError | None = None
+        for path in (
+            f"content/{page_id}/version",
+            f"../experimental/content/{page_id}/version",
+        ):
+            try:
+                return self._get_json(path, params={"limit": 100}).get("results", [])
+            except ConfluenceAPIError as exc:
+                if exc.status_code not in (404, 405):
+                    raise
+                last_error = exc
+        raise ConfluenceAPIError(
+            "Confluence exposes no version-history endpoint at /rest/api/content/{id}/version "
+            "or /rest/experimental/content/{id}/version.",
+            status_code=last_error.status_code if last_error else None,
+        )
+
+    def get_page_version(self, page_id: str, version: int) -> dict[str, Any]:
+        self._validate_page_id(page_id)
+        return self._get_json(
+            f"content/{page_id}",
+            params={
+                "status": "historical",
+                "version": version,
+                "expand": "body.storage,version,space",
+            },
+        )
+
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         # This is the only HTTP operation in the client. No write method is exposed.
         try:
