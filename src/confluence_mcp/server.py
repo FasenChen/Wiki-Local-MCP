@@ -66,6 +66,47 @@ def search_pages(query: str, space_key: str | None = None, limit: int = 10) -> d
     return {"results": [_page_summary(page, client) for page in pages], "count": len(pages)}
 
 
+def _search_result_summary(result: dict[str, Any], client: Any) -> dict[str, Any]:
+    content = result.get("content") or {}
+    space = content.get("space") or {}
+    return {
+        "page_id": str(content.get("id", "")),
+        "title": result.get("title") or content.get("title", ""),
+        "space_key": space.get("key"),
+        "excerpt": result.get("excerpt", ""),
+        "last_modified": result.get("lastModified"),
+        "url": client.absolute_url(result.get("url")),
+    }
+
+
+@mcp.tool()
+def cql_search(cql: str, limit: int = 25, start: int = 0) -> dict[str, Any]:
+    """Run a raw CQL query against Confluence and return matching pages."""
+    cql = cql.strip()
+    if not cql:
+        raise ValueError("cql must not be empty.")
+    if len(cql) > 4000:
+        raise ValueError("cql must be 4000 characters or fewer.")
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50.")
+    if start < 0:
+        raise ValueError("start must be zero or greater.")
+
+    client = get_client()
+    payload = client.search_cql(cql, limit=limit, start=start)
+    results = payload.get("results", [])
+    total = payload.get("totalSize")
+    if isinstance(total, int):
+        has_more = start + len(results) < total
+    else:
+        has_more = len(results) == limit
+    return {
+        "results": [_search_result_summary(item, client) for item in results],
+        "count": len(results),
+        "next_start": start + len(results) if has_more else None,
+    }
+
+
 @mcp.tool()
 def get_page(page_id: str, output_format: OutputFormat = "markdown") -> dict[str, Any]:
     """Read one Confluence page by ID as Markdown, rendered HTML, or storage XHTML."""

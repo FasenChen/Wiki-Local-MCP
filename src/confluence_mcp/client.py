@@ -113,6 +113,17 @@ class ConfluenceClient:
         )
         return payload.get("results", [])
 
+    def search_cql(self, cql: str, *, limit: int, start: int) -> dict[str, Any]:
+        return self._get_json(
+            "search",
+            params={
+                "cql": cql,
+                "limit": limit,
+                "start": start,
+                "expand": "content.space,content.version",
+            },
+        )
+
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         # This is the only HTTP operation in the client. No write method is exposed.
         try:
@@ -149,13 +160,15 @@ class ConfluenceClient:
             raise ConfluenceAPIError("Confluence returned an unexpected response shape.")
         return payload
 
-    def page_url(self, page: dict[str, Any]) -> str | None:
-        links = page.get("_links", {})
-        webui = links.get("webui")
-        if not webui:
+    def absolute_url(self, path: str | None, *, base: str | None = None) -> str | None:
+        if not path:
             return None
-        response_base = links.get("base") or self._base_url
-        return urljoin(response_base.rstrip("/") + "/", webui.lstrip("/"))
+        response_base = base or self._base_url
+        return urljoin(response_base.rstrip("/") + "/", path.lstrip("/"))
+
+    def page_url(self, page: dict[str, Any]) -> str | None:
+        links = page.get("_links") or {}
+        return self.absolute_url(links.get("webui"), base=links.get("base"))
 
 
 @lru_cache(maxsize=1)

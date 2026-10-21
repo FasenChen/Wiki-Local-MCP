@@ -16,6 +16,9 @@ dependencies = [
     "mcp>=1.26,<2",
 ]
 
+[dependency-groups]
+dev = ["pytest>=8,<9"]
+
 [project.scripts]
 confluence-mcp = "confluence_mcp.server:main"
 confluence-mcp-store-pat = "confluence_mcp.credentials:main"
