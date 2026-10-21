@@ -11,6 +11,8 @@ class FakeClient:
         self.children = {}
         self.versions = {}
         self.historical_pages = {}
+        self.created = []
+        self.create_response = {}
 
     def get_page(self, page_id):
         return self.pages[page_id]
@@ -42,6 +44,10 @@ class FakeClient:
     def get_page_version(self, page_id, version):
         self.search_calls.append(("version", page_id, version))
         return self.historical_pages[(page_id, version)]
+
+    def create_content(self, payload):
+        self.created.append(payload)
+        return self.create_response
 
     def absolute_url(self, path):
         return f"https://wiki.example.com{path}"

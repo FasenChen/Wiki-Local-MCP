@@ -1,4 +1,4 @@
-"""Minimal GET-only client for the Confluence Server/Data Center REST API."""
+"""Client for the Confluence Server/Data Center REST API."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ class ConfluenceSettings:
 
 
 class ConfluenceClient:
-    """A deliberately GET-only wrapper around Confluence REST API v1."""
+    """A wrapper around Confluence REST API v1."""
 
     def __init__(self, settings: ConfluenceSettings) -> None:
         headers = {"Accept": "application/json"}
@@ -184,10 +184,22 @@ class ConfluenceClient:
             },
         )
 
+    def create_content(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("POST", "content", json_body=payload)
+
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
-        # This is the only HTTP operation in the client. No write method is exposed.
+        return self._request_json("GET", path, params=params)
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         try:
-            response = self._client.get(path, params=params)
+            response = self._client.request(method, path, params=params, json=json_body)
         except httpx.TimeoutException as exc:
             raise ConfluenceAPIError("The Confluence request timed out.") from exc
         except httpx.ConnectError as exc:
@@ -208,7 +220,8 @@ class ConfluenceClient:
             )
         if response.status_code == 403:
             raise ConfluenceAPIError(
-                "Confluence returned 403: the account lacks permission to read this content.",
+                "Confluence returned 403: the account lacks permission for this operation. "
+                "For writes, also check CONFLUENCE_WRITE_SPACES and the space's edit restrictions.",
                 status_code=403,
             )
         if response.status_code == 404:

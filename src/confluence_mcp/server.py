@@ -9,7 +9,9 @@ from mcp.server.fastmcp import FastMCP
 
 from .client import ConfluenceAPIError, get_client, quote_cql
 from .conversion import storage_to_markdown
+from .markdown_storage import markdown_to_storage
 from .outline import extract_section, find_headings
+from .writes import audit_write, ensure_write_allowed
 
 mcp = FastMCP("confluence-readonly")
 OutputFormat = Literal["markdown", "html", "storage"]
@@ -263,6 +265,82 @@ def get_page_history(
     result["diff"] = diff[:max_chars]
     result["truncated"] = len(diff) > max_chars
     return result
+
+
+@mcp.tool()
+def create_page(
+    space_key: str,
+    title: str,
+    content_markdown: str,
+    parent_page_id: str | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Create a page from Markdown. Defaults to a dry run that posts nothing."""
+    space_key = space_key.strip()
+    title = title.strip()
+    if not space_key:
+        raise ValueError("space_key must not be empty.")
+    if not title:
+        raise ValueError("title must not be empty.")
+    if not content_markdown.strip():
+        raise ValueError("content_markdown must not be empty.")
+    ensure_write_allowed(space_key)
+
+    client = get_client()
+    cql = (
+        f'type = page AND space = "{quote_cql(space_key)}" '
+        f'AND title = "{quote_cql(title)}"'
+    )
+    existing = client.search_pages(cql, 5)
+    if existing:
+        raise ConfluenceAPIError(
+            f'A page titled "{title}" already exists in space {space_key}: '
+            f"{_page_summary(existing[0], client)['url']}"
+        )
+
+    ancestors = None
+    if parent_page_id is not None:
+        if not parent_page_id.isdigit():
+            raise ValueError("parent_page_id must contain only digits.")
+        parent = client.get_page(parent_page_id)
+        parent_space = (parent.get("space") or {}).get("key")
+        if parent_space != space_key:
+            raise ValueError(
+                f"Parent page {parent_page_id} is in a different space ({parent_space})."
+            )
+        ancestors = [{"id": parent_page_id}]
+
+    storage = markdown_to_storage(content_markdown)
+    target = {"space_key": space_key, "title": title, "parent_page_id": parent_page_id}
+    if dry_run:
+        return {
+            "dry_run": True,
+            "action": "create_page",
+            "target": target,
+            "storage_preview": storage[:4000],
+        }
+
+    payload: dict[str, Any] = {
+        "type": "page",
+        "title": title,
+        "space": {"key": space_key},
+        "body": {"storage": {"representation": "storage", "value": storage}},
+    }
+    if ancestors:
+        payload["ancestors"] = ancestors
+    created = client.create_content(payload)
+    audit_write(
+        "create_page",
+        page_id=str(created.get("id", "")),
+        space_key=space_key,
+        version_before=None,
+        version_after=(created.get("version") or {}).get("number"),
+        result="created",
+    )
+    return {
+        "dry_run": False,
+        **_page_summary(created, client),
+    }
 
 
 @mcp.tool()
