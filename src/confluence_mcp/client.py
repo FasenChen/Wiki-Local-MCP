@@ -1,4 +1,4 @@
-"""Minimal GET-only client for the Confluence Server/Data Center REST API."""
+"""Client for the Confluence Server/Data Center REST API."""
 
 from __future__ import annotations
 
@@ -21,6 +21,10 @@ class ConfluenceConfigurationError(RuntimeError):
 
 class ConfluenceAPIError(RuntimeError):
     """Raised when Confluence returns an unsuccessful response."""
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -77,7 +81,7 @@ class ConfluenceSettings:
 
 
 class ConfluenceClient:
-    """A deliberately GET-only wrapper around Confluence REST API v1."""
+    """A wrapper around Confluence REST API v1."""
 
     def __init__(self, settings: ConfluenceSettings) -> None:
         headers = {"Accept": "application/json"}
@@ -98,9 +102,12 @@ class ConfluenceClient:
         )
         self._base_url = settings.base_url
 
-    def get_page(self, page_id: str) -> dict[str, Any]:
+    def _validate_page_id(self, page_id: str) -> None:
         if not re.fullmatch(r"[0-9]+", page_id):
             raise ValueError("page_id must contain only digits.")
+
+    def get_page(self, page_id: str) -> dict[str, Any]:
+        self._validate_page_id(page_id)
         return self._get_json(
             f"content/{page_id}",
             params={"expand": "body.storage,body.view,version,space,ancestors"},
@@ -113,10 +120,90 @@ class ConfluenceClient:
         )
         return payload.get("results", [])
 
+    def search_cql(self, cql: str, *, limit: int, start: int) -> dict[str, Any]:
+        return self._get_json(
+            "search",
+            params={
+                "cql": cql,
+                "limit": limit,
+                "start": start,
+                "expand": "content.space,content.version",
+            },
+        )
+
+    def list_spaces(self, *, limit: int, start: int) -> dict[str, Any]:
+        return self._get_json("space", params={"type": "global", "limit": limit, "start": start})
+
+    def get_comments(self, page_id: str, *, limit: int) -> list[dict[str, Any]]:
+        self._validate_page_id(page_id)
+        payload = self._get_json(
+            f"content/{page_id}/child/comment",
+            params={
+                "expand": "body.storage,version,history",
+                "depth": "all",
+                "limit": limit,
+            },
+        )
+        return payload.get("results", [])
+
+    def get_child_pages(self, page_id: str, *, limit: int) -> list[dict[str, Any]]:
+        self._validate_page_id(page_id)
+        payload = self._get_json(
+            f"content/{page_id}/child/page",
+            params={"expand": "space,version", "limit": limit},
+        )
+        return payload.get("results", [])
+
+    def list_versions(self, page_id: str) -> list[dict[str, Any]]:
+        self._validate_page_id(page_id)
+        last_error: ConfluenceAPIError | None = None
+        for path in (
+            f"content/{page_id}/version",
+            f"../experimental/content/{page_id}/version",
+        ):
+            try:
+                return self._get_json(path, params={"limit": 100}).get("results", [])
+            except ConfluenceAPIError as exc:
+                if exc.status_code not in (404, 405):
+                    raise
+                last_error = exc
+        raise ConfluenceAPIError(
+            "Confluence exposed no version-history endpoint at /rest/api/content/{id}/version "
+            "or /rest/experimental/content/{id}/version, and the page may not exist.",
+            status_code=last_error.status_code if last_error else None,
+        )
+
+    def get_page_version(self, page_id: str, version: int) -> dict[str, Any]:
+        self._validate_page_id(page_id)
+        return self._get_json(
+            f"content/{page_id}",
+            params={
+                "status": "historical",
+                "version": version,
+                "expand": "body.storage,version,space",
+            },
+        )
+
+    def create_content(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("POST", "content", json_body=payload)
+
+    def update_page(self, page_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._validate_page_id(page_id)
+        return self._request_json("PUT", f"content/{page_id}", json_body=payload)
+
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
-        # This is the only HTTP operation in the client. No write method is exposed.
+        return self._request_json("GET", path, params=params)
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         try:
-            response = self._client.get(path, params=params)
+            response = self._client.request(method, path, params=params, json=json_body)
         except httpx.TimeoutException as exc:
             raise ConfluenceAPIError("The Confluence request timed out.") from exc
         except httpx.ConnectError as exc:
@@ -127,19 +214,37 @@ class ConfluenceClient:
         if response.is_redirect:
             raise ConfluenceAPIError(
                 "Confluence redirected the API request. Check the base URL and context path; "
-                "the server does not follow redirects to avoid sending credentials elsewhere."
+                "the server does not follow redirects to avoid sending credentials elsewhere.",
+                status_code=response.status_code,
             )
         if response.status_code == 401:
-            raise ConfluenceAPIError("Confluence returned 401: credentials are missing, invalid, or expired.")
+            raise ConfluenceAPIError(
+                "Confluence returned 401: credentials are missing, invalid, or expired.",
+                status_code=401,
+            )
         if response.status_code == 403:
-            raise ConfluenceAPIError("Confluence returned 403: the account lacks permission to read this content.")
+            raise ConfluenceAPIError(
+                "Confluence returned 403: the account lacks permission for this operation. "
+                "For writes, also check CONFLUENCE_WRITE_SPACES and the space's edit restrictions.",
+                status_code=403,
+            )
         if response.status_code == 404:
             raise ConfluenceAPIError(
                 "Confluence returned 404: check the page ID and base URL context path; "
-                "a page hidden by permissions may also appear unavailable."
+                "a page hidden by permissions may also appear unavailable.",
+                status_code=404,
+            )
+        if response.status_code == 409:
+            raise ConfluenceAPIError(
+                "Confluence rejected the update because the page version changed (HTTP 409). "
+                "Re-read the page and retry with the current version.",
+                status_code=409,
             )
         if response.is_error:
-            raise ConfluenceAPIError(f"Confluence returned HTTP {response.status_code}.")
+            raise ConfluenceAPIError(
+                f"Confluence returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            )
 
         try:
             payload = response.json()
@@ -149,13 +254,15 @@ class ConfluenceClient:
             raise ConfluenceAPIError("Confluence returned an unexpected response shape.")
         return payload
 
-    def page_url(self, page: dict[str, Any]) -> str | None:
-        links = page.get("_links", {})
-        webui = links.get("webui")
-        if not webui:
+    def absolute_url(self, path: str | None, *, base: str | None = None) -> str | None:
+        if not path:
             return None
-        response_base = links.get("base") or self._base_url
-        return urljoin(response_base.rstrip("/") + "/", webui.lstrip("/"))
+        response_base = base or self._base_url
+        return urljoin(response_base.rstrip("/") + "/", path.lstrip("/"))
+
+    def page_url(self, page: dict[str, Any]) -> str | None:
+        links = page.get("_links") or {}
+        return self.absolute_url(links.get("webui"), base=links.get("base"))
 
 
 @lru_cache(maxsize=1)
