@@ -28,7 +28,7 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 在 PowerShell 中进入仓库目录并同步依赖：
 
 ```powershell
-Set-Location D:\Code\Wiki-MCP-Local
+Set-Location D:\Code\Wiki-Local-MCP
 uv sync
 ```
 
@@ -56,7 +56,7 @@ Codex Desktop、Codex CLI 与 IDE 扩展共用个人配置文件：
 [mcp_servers.confluence_readonly]
 command = "uv"
 args = ["run", "confluence-mcp"]
-cwd = "D:\\Code\\Wiki-MCP-Local"
+cwd = "D:\\Code\\Wiki-Local-MCP"
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 
