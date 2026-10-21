@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -175,6 +176,18 @@ def get_comments(page_id: str, limit: int = 50) -> dict[str, Any]:
     }
 
 
+def _storage(page: dict[str, Any]) -> str:
+    return ((page.get("body") or {}).get("storage") or {}).get("value") or ""
+
+
+def _unified_diff(old: str, new: str, from_label: str, to_label: str) -> str:
+    return "\n".join(
+        difflib.unified_diff(
+            old.splitlines(), new.splitlines(), fromfile=from_label, tofile=to_label, lineterm=""
+        )
+    )
+
+
 @mcp.tool()
 def get_children(page_id: str, depth: int = 1, limit: int = 50) -> dict[str, Any]:
     """List child pages, optionally recursing up to three levels."""
@@ -202,6 +215,54 @@ def get_children(page_id: str, depth: int = 1, limit: int = 50) -> dict[str, Any
         return nodes
 
     return {"page_id": page_id, "children": build(page_id, depth), "truncated": truncated}
+
+
+@mcp.tool()
+def get_page_history(
+    page_id: str,
+    from_version: int | None = None,
+    to_version: int | None = None,
+    limit: int = 25,
+    max_chars: int = 4000,
+) -> dict[str, Any]:
+    """List page versions, or diff two versions as Markdown."""
+    if not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100.")
+    if max_chars < 1:
+        raise ValueError("max_chars must be at least 1.")
+    if (from_version is None) != (to_version is None):
+        raise ValueError("Provide both from_version and to_version, or neither.")
+    for version in (from_version, to_version):
+        if version is not None and version < 1:
+            raise ValueError("version numbers must be at least 1.")
+    if from_version is not None and from_version == to_version:
+        raise ValueError("from_version and to_version must differ.")
+
+    client = get_client()
+    versions = [
+        {
+            "number": item.get("number"),
+            "when": item.get("when"),
+            "by": (item.get("by") or {}).get("displayName"),
+            "message": item.get("message", ""),
+        }
+        for item in client.list_versions(page_id)[:limit]
+    ]
+    result: dict[str, Any] = {"page_id": page_id, "versions": versions}
+    if from_version is None:
+        return result
+
+    old_storage = _storage(client.get_page_version(page_id, from_version))
+    new_storage = _storage(client.get_page_version(page_id, to_version or from_version))
+    diff = _unified_diff(
+        storage_to_markdown(old_storage),
+        storage_to_markdown(new_storage),
+        f"v{from_version}",
+        f"v{to_version}",
+    )
+    result["diff"] = diff[:max_chars]
+    result["truncated"] = len(diff) > max_chars
+    return result
 
 
 @mcp.tool()

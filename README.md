@@ -10,6 +10,10 @@
 - `cql_search`：直接执行 CQL，支持标签、时间、作者、空间组合查询；返回 excerpt 与分页 `next_start`。
 - `get_page_outline`：只返回 h1–h6 标题树，适合先看结构再决定读哪一节。
 - `get_page` 新增 `section` 与 `max_chars`：按标题只读一节；超长内容截断并返回 `truncated`。
+- `list_spaces`：列出可见的全局 Space，便于找到 `space_key`。
+- `get_comments`：读取页面评论并转 Markdown，保留回复的父评论 ID。
+- `get_children`：读取子页面树，最多 3 层，单次调用总节点上限 200。
+- `get_page_history`：列出版本历史，或对两个版本做 Markdown diff（默认 4000 字符上限）。8.5.15 实测 `/rest/api/content/{id}/version` 可用；不可用时自动回退到 `/rest/experimental`。
 - 页面内容可返回 Markdown、Confluence 渲染 HTML 或原始 storage XHTML。
 
 页面 ID 可从页面链接中的 `pageId` 参数，或从 `.../pages/<数字>/...` 路径中取得。也可以先用 `search_pages` 或 `get_page_by_title` 查找页面。
