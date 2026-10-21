@@ -146,6 +146,14 @@ class ConfluenceClient:
         )
         return payload.get("results", [])
 
+    def get_child_pages(self, page_id: str, *, limit: int) -> list[dict[str, Any]]:
+        self._validate_page_id(page_id)
+        payload = self._get_json(
+            f"content/{page_id}/child/page",
+            params={"expand": "space,version", "limit": limit},
+        )
+        return payload.get("results", [])
+
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         # This is the only HTTP operation in the client. No write method is exposed.
         try:

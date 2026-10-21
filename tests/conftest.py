@@ -8,6 +8,7 @@ class FakeClient:
         self.search_calls = []
         self.spaces_response = {"results": [], "size": 0}
         self.comments = {}
+        self.children = {}
 
     def get_page(self, page_id):
         return self.pages[page_id]
@@ -27,6 +28,10 @@ class FakeClient:
     def get_comments(self, page_id, *, limit):
         self.search_calls.append(("comments", page_id, limit))
         return self.comments.get(page_id, [])
+
+    def get_child_pages(self, page_id, *, limit):
+        self.search_calls.append(("children", page_id, limit))
+        return self.children.get(page_id, [])[:limit]
 
     def absolute_url(self, path):
         return f"https://wiki.example.com{path}"

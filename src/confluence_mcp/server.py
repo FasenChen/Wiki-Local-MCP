@@ -12,6 +12,7 @@ from .outline import extract_section, find_headings
 
 mcp = FastMCP("confluence-readonly")
 OutputFormat = Literal["markdown", "html", "storage"]
+MAX_CHILD_NODES = 200
 
 
 def _cql_escape(value: str, name: str) -> str:
@@ -172,6 +173,35 @@ def get_comments(page_id: str, limit: int = 50) -> dict[str, Any]:
         ],
         "count": len(comments),
     }
+
+
+@mcp.tool()
+def get_children(page_id: str, depth: int = 1, limit: int = 50) -> dict[str, Any]:
+    """List child pages, optionally recursing up to three levels."""
+    if not 1 <= depth <= 3:
+        raise ValueError("depth must be between 1 and 3.")
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50.")
+
+    client = get_client()
+    budget = [MAX_CHILD_NODES]
+    truncated = False
+
+    def build(current_id: str, levels_left: int) -> list[dict[str, Any]]:
+        nonlocal truncated
+        nodes = []
+        for child in client.get_child_pages(current_id, limit=limit):
+            if budget[0] <= 0:
+                truncated = True
+                break
+            budget[0] -= 1
+            node = _page_summary(child, client)
+            if levels_left > 1:
+                node["children"] = build(str(child.get("id", "")), levels_left - 1)
+            nodes.append(node)
+        return nodes
+
+    return {"page_id": page_id, "children": build(page_id, depth), "truncated": truncated}
 
 
 @mcp.tool()
