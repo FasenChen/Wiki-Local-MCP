@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .client import ConfluenceAPIError, get_client, quote_cql
 from .conversion import storage_to_markdown
-from .markdown_storage import markdown_to_storage
+from .markdown_storage import contains_macro, markdown_to_storage
 from .outline import extract_section, find_headings
 from .writes import audit_write, ensure_write_allowed, writes_enabled
 
@@ -265,6 +265,94 @@ def get_page_history(
     result["diff"] = diff[:max_chars]
     result["truncated"] = len(diff) > max_chars
     return result
+
+
+def update_page(
+    page_id: str,
+    expected_version: int,
+    content: str,
+    title: str | None = None,
+    content_format: Literal["markdown", "storage"] = "markdown",
+    dry_run: bool = True,
+    force: bool = False,
+    change_message: str = "",
+    max_chars: int = 4000,
+) -> dict[str, Any]:
+    """Replace a page body, guarded by an expected version. Defaults to a dry run."""
+    if expected_version < 1:
+        raise ValueError("expected_version must be at least 1.")
+    if max_chars < 1:
+        raise ValueError("max_chars must be at least 1.")
+    if content_format not in {"markdown", "storage"}:
+        raise ValueError('content_format must be "markdown" or "storage".')
+    if content_format == "markdown" and not content.strip():
+        raise ValueError("content must not be empty when content_format is markdown.")
+
+    client = get_client()
+    page = client.get_page(page_id)
+    space_key = (page.get("space") or {}).get("key")
+    ensure_write_allowed(space_key)
+
+    current = (page.get("version") or {}).get("number")
+    if current != expected_version:
+        raise ConfluenceAPIError(
+            f"Version conflict: current version is {current}, expected_version was {expected_version}. "
+            "Re-read the page and retry."
+        )
+
+    old_storage = _storage(page)
+    if content_format == "markdown":
+        if contains_macro(old_storage) and not force:
+            raise ConfluenceAPIError(
+                "This page contains Confluence macros; replacing it with Markdown would drop them. "
+                'Use update_page_section, content_format="storage", or force=True.'
+            )
+        new_storage = markdown_to_storage(content)
+    else:
+        new_storage = content
+
+    new_title = title.strip() if title else page.get("title", "")
+    if not new_title:
+        raise ValueError("title must not be empty.")
+
+    diff = _unified_diff(
+        storage_to_markdown(old_storage),
+        storage_to_markdown(new_storage),
+        f"v{current}",
+        f"v{current + 1}",
+    )
+    if dry_run:
+        return {
+            "dry_run": True,
+            "page_id": page_id,
+            "title": new_title,
+            "version_before": current,
+            "version_after": current + 1,
+            "diff": diff[:max_chars],
+            "truncated": len(diff) > max_chars,
+            "storage_preview": new_storage[:max_chars],
+        }
+
+    payload = {
+        "id": page_id,
+        "type": "page",
+        "title": new_title,
+        "version": {
+            "number": current + 1,
+            "message": f"[MCP] {change_message}".strip(),
+        },
+        "body": {"storage": {"representation": "storage", "value": new_storage}},
+    }
+    updated = client.update_page(page_id, payload)
+    audit_write(
+        "update_page",
+        page_id=page_id,
+        space_key=space_key,
+        version_before=current,
+        version_after=current + 1,
+        result="updated",
+    )
+    return {"dry_run": False, **_page_summary(updated, client)}
 
 
 def create_page(

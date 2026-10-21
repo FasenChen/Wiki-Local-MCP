@@ -187,6 +187,10 @@ class ConfluenceClient:
     def create_content(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("POST", "content", json_body=payload)
 
+    def update_page(self, page_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._validate_page_id(page_id)
+        return self._request_json("PUT", f"content/{page_id}", json_body=payload)
+
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("GET", path, params=params)
 
@@ -229,6 +233,12 @@ class ConfluenceClient:
                 "Confluence returned 404: check the page ID and base URL context path; "
                 "a page hidden by permissions may also appear unavailable.",
                 status_code=404,
+            )
+        if response.status_code == 409:
+            raise ConfluenceAPIError(
+                "Confluence rejected the update because the page version changed (HTTP 409). "
+                "Re-read the page and retry with the current version.",
+                status_code=409,
             )
         if response.is_error:
             raise ConfluenceAPIError(

@@ -13,6 +13,8 @@ class FakeClient:
         self.historical_pages = {}
         self.created = []
         self.create_response = {}
+        self.updated = []
+        self.update_response = {}
 
     def get_page(self, page_id):
         return self.pages[page_id]
@@ -48,6 +50,10 @@ class FakeClient:
     def create_content(self, payload):
         self.created.append(payload)
         return self.create_response
+
+    def update_page(self, page_id, payload):
+        self.updated.append(payload)
+        return self.update_response
 
     def absolute_url(self, path):
         return f"https://wiki.example.com{path}"
