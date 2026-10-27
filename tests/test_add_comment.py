@@ -1,6 +1,6 @@
 import pytest
 
-from confluence_mcp import server, writes
+from confluence_mcp import queue, server
 
 PAGE = {
     "id": "42",
@@ -25,23 +25,23 @@ def test_add_comment_dry_run_previews_without_posting(fake_client, monkeypatch):
     assert fake_client.created == []
 
 
-def test_add_comment_posts_comment_container(fake_client, monkeypatch, tmp_path):
+def test_add_comment_queues_comment_payload(fake_client, monkeypatch):
     monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
     fake_client.pages["42"] = PAGE
-    fake_client.create_response = {
-        "id": "100",
-        "_links": {"webui": "/spaces/OPS/pages/42#comment-100"},
-    }
 
     result = server.add_comment("42", "reply", parent_comment_id="99", dry_run=False)
 
-    payload = fake_client.created[0]
+    assert result["queued"] is True and result["status"] == "pending"
+    assert fake_client.created == []
+    [op] = queue.list_ops()
+    assert op["id"] == result["operation_id"]
+    assert op["kind"] == "create" and op["page_id"] == "42"
+    assert op["summary"] == "comment on page 42"
+    assert op["preview"] == "reply"
+    payload = op["payload"]
     assert payload["type"] == "comment"
     assert payload["container"] == {"id": "42", "type": "page"}
     assert payload["ancestors"] == [{"id": "99"}]
-    assert result["comment_id"] == "100"
-    assert "add_comment" in (tmp_path / "audit.log").read_text(encoding="utf-8")
 
 
 def test_add_comment_respects_whitelist(fake_client, monkeypatch):

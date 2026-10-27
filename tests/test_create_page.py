@@ -1,6 +1,6 @@
 import pytest
 
-from confluence_mcp import server, writes
+from confluence_mcp import queue, server
 from confluence_mcp.client import ConfluenceAPIError, ConfluenceConfigurationError
 
 
@@ -51,24 +51,18 @@ def test_create_page_respects_whitelist(fake_client, monkeypatch):
         server.create_page("OPS", "Release", "x")
 
 
-def test_create_page_posts_and_audits(fake_client, monkeypatch, tmp_path):
+def test_create_page_queues_payload(fake_client, monkeypatch):
     monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
-    fake_client.create_response = {
-        "id": "77",
-        "title": "Release",
-        "space": {"key": "OPS"},
-        "version": {"number": 1},
-        "_links": {"webui": "/spaces/OPS/pages/77"},
-    }
 
     result = server.create_page("OPS", "Release", "hello", dry_run=False)
 
-    payload = fake_client.created[0]
+    assert result["queued"] is True and result["status"] == "pending"
+    assert fake_client.created == []
+    [op] = queue.list_ops()
+    assert op["id"] == result["operation_id"]
+    assert op["kind"] == "create" and op["page_id"] is None and op["version_before"] is None
+    payload = op["payload"]
     assert payload["type"] == "page"
     assert payload["title"] == "Release"
     assert payload["space"] == {"key": "OPS"}
     assert payload["body"]["storage"]["representation"] == "storage"
-    assert result["page_id"] == "77"
-    assert result["version"] == 1
-    assert "create_page" in (tmp_path / "audit.log").read_text(encoding="utf-8")

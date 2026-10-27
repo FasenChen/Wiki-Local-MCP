@@ -1,6 +1,6 @@
 import pytest
 
-from confluence_mcp import server, writes
+from confluence_mcp import queue, server
 from confluence_mcp.client import ConfluenceAPIError
 
 
@@ -54,11 +54,8 @@ def test_update_page_section_rejects_unknown_section(fake_client, monkeypatch):
         server.update_page_section("42", "Missing", "new", expected_version=5)
 
 
-def test_update_page_section_preserves_other_sections_and_macros(
-    fake_client, monkeypatch, tmp_path
-):
+def test_update_page_section_queues_full_storage(fake_client, monkeypatch):
     monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
     fake_client.pages["42"] = page(
         storage=(
             '<ac:structured-macro ac:name="toc"/>'
@@ -66,25 +63,29 @@ def test_update_page_section_preserves_other_sections_and_macros(
             '<h2>Notes</h2><p>keep</p>'
         )
     )
-    fake_client.update_response = page(version=6)
 
-    server.update_page_section("42", "Setup", "new body", expected_version=5, dry_run=False)
+    result = server.update_page_section(
+        "42", "Setup", "new body", expected_version=5, dry_run=False
+    )
 
-    payload = fake_client.updated[0]
-    assert payload["version"] == {"number": 6, "message": "[MCP]"}
-    assert payload["body"]["storage"]["value"] == (
+    assert result["queued"] is True and result["status"] == "pending"
+    assert fake_client.updated == []
+    [op] = queue.list_ops()
+    assert op["id"] == result["operation_id"]
+    assert op["kind"] == "update" and op["version_before"] == 5
+    assert op["summary"] == "Setup"
+    assert op["payload"]["version"]["number"] == 6
+    assert op["payload"]["body"]["storage"]["value"] == (
         '<ac:structured-macro ac:name="toc"/>'
         '<h2>Setup</h2><p>new body</p>'
         '<h2>Notes</h2><p>keep</p>'
     )
-    assert "update_page_section" in (tmp_path / "audit.log").read_text(encoding="utf-8")
 
 
 def test_update_page_section_can_clear_the_body(fake_client, monkeypatch):
     monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page(storage="<h2>Setup</h2><p>old</p>")
-    fake_client.update_response = page(version=6)
 
     server.update_page_section("42", "Setup", "", expected_version=5, dry_run=False)
 
-    assert fake_client.updated[0]["body"]["storage"]["value"] == "<h2>Setup</h2>"
+    assert queue.list_ops()[0]["payload"]["body"]["storage"]["value"] == "<h2>Setup</h2>"

@@ -7,15 +7,30 @@ from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
+from . import queue
 from .client import ConfluenceAPIError, get_client, quote_cql
 from .conversion import storage_to_markdown
 from .markdown_storage import contains_macro, markdown_to_storage
 from .outline import extract_section, find_headings, replace_section
-from .writes import audit_write, ensure_write_allowed, writes_enabled
+from .writes import ensure_write_allowed, writes_enabled
 
 mcp = FastMCP("confluence")
 OutputFormat = Literal["markdown", "html", "storage"]
 MAX_CHILD_NODES = 200
+PENDING_MESSAGE = (
+    "Queued, not executed. A person must approve it outside MCP with "
+    "`confluence-mcp-review approve`, then call apply_approved_operations."
+)
+
+
+def _queued(op_id: str) -> dict[str, Any]:
+    return {
+        "dry_run": False,
+        "queued": True,
+        "operation_id": op_id,
+        "status": "pending",
+        "message": PENDING_MESSAGE,
+    }
 
 
 def _cql_escape(value: str, name: str) -> str:
@@ -288,7 +303,10 @@ def update_page_section(
     change_message: str = "",
     max_chars: int = 4000,
 ) -> dict[str, Any]:
-    """Replace one heading section, preserving the rest of the page byte for byte."""
+    """Replace one heading section, preserving the rest of the page byte for byte.
+
+    A dry run previews the change; dry_run=False queues it for human approval.
+    """
     section_title = section_title.strip()
     if not section_title:
         raise ValueError("section_title must not be empty.")
@@ -344,16 +362,18 @@ def update_page_section(
         },
         "body": {"storage": {"representation": "storage", "value": new_storage}},
     }
-    updated = client.update_page(page_id, payload)
-    audit_write(
-        "update_page_section",
-        page_id=page_id,
-        space_key=space_key,
-        version_before=current,
-        version_after=current + 1,
-        result="updated",
+    return _queued(
+        queue.enqueue(
+            "update_page_section",
+            kind="update",
+            page_id=page_id,
+            space_key=space_key,
+            version_before=current,
+            summary=heading.title,
+            preview=diff,
+            payload=payload,
+        )
     )
-    return {"dry_run": False, **_page_summary(updated, client)}
 
 
 def update_page(
@@ -367,7 +387,10 @@ def update_page(
     change_message: str = "",
     max_chars: int = 4000,
 ) -> dict[str, Any]:
-    """Replace a page body, guarded by an expected version. Defaults to a dry run."""
+    """Replace a page body, guarded by an expected version.
+
+    A dry run previews the change; dry_run=False queues it for human approval.
+    """
     if expected_version < 1:
         raise ValueError("expected_version must be at least 1.")
     if max_chars < 1:
@@ -432,16 +455,18 @@ def update_page(
         },
         "body": {"storage": {"representation": "storage", "value": new_storage}},
     }
-    updated = client.update_page(page_id, payload)
-    audit_write(
-        "update_page",
-        page_id=page_id,
-        space_key=space_key,
-        version_before=current,
-        version_after=current + 1,
-        result="updated",
+    return _queued(
+        queue.enqueue(
+            "update_page",
+            kind="update",
+            page_id=page_id,
+            space_key=space_key,
+            version_before=current,
+            summary=new_title,
+            preview=diff,
+            payload=payload,
+        )
     )
-    return {"dry_run": False, **_page_summary(updated, client)}
 
 
 def create_page(
@@ -451,7 +476,10 @@ def create_page(
     parent_page_id: str | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
-    """Create a page from Markdown. Defaults to a dry run that posts nothing."""
+    """Create a page from Markdown.
+
+    A dry run previews the change; dry_run=False queues it for human approval.
+    """
     space_key = space_key.strip()
     title = title.strip()
     if not space_key:
@@ -504,19 +532,18 @@ def create_page(
     }
     if ancestors:
         payload["ancestors"] = ancestors
-    created = client.create_content(payload)
-    audit_write(
-        "create_page",
-        page_id=str(created.get("id", "")),
-        space_key=space_key,
-        version_before=None,
-        version_after=(created.get("version") or {}).get("number"),
-        result="created",
+    return _queued(
+        queue.enqueue(
+            "create_page",
+            kind="create",
+            page_id=None,
+            space_key=space_key,
+            version_before=None,
+            summary=title,
+            preview=content_markdown,
+            payload=payload,
+        )
     )
-    return {
-        "dry_run": False,
-        **_page_summary(created, client),
-    }
 
 
 def add_comment(
@@ -525,7 +552,10 @@ def add_comment(
     parent_comment_id: str | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
-    """Add a page comment from Markdown. Defaults to a dry run that posts nothing."""
+    """Add a page comment from Markdown.
+
+    A dry run previews the change; dry_run=False queues it for human approval.
+    """
     if not content_markdown.strip():
         raise ValueError("content_markdown must not be empty.")
     if parent_comment_id is not None and not parent_comment_id.isdigit():
@@ -552,21 +582,18 @@ def add_comment(
     }
     if parent_comment_id is not None:
         payload["ancestors"] = [{"id": parent_comment_id}]
-    created = client.create_content(payload)
-    audit_write(
-        "add_comment",
-        page_id=page_id,
-        space_key=space_key,
-        version_before=None,
-        version_after=None,
-        result="created",
+    return _queued(
+        queue.enqueue(
+            "add_comment",
+            kind="create",
+            page_id=page_id,
+            space_key=space_key,
+            version_before=None,
+            summary=f"comment on page {page_id}",
+            preview=content_markdown,
+            payload=payload,
+        )
     )
-    return {
-        "dry_run": False,
-        "comment_id": str(created.get("id", "")),
-        "page_id": page_id,
-        "url": client.page_url(created),
-    }
 
 
 @mcp.tool()
