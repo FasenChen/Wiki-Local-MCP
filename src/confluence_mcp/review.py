@@ -9,6 +9,25 @@ from typing import Any
 from . import queue
 
 
+def _console_attached() -> bool:
+    """True only on a real Windows console; NUL and other char devices also report isatty()."""
+    import ctypes
+    import msvcrt
+
+    try:
+        handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+    except (OSError, ValueError):
+        return False
+    mode = ctypes.c_uint32()
+    return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+
+
+def _interactive_stdin() -> bool:
+    if not sys.stdin.isatty():
+        return False
+    return _console_attached() if sys.platform == "win32" else True
+
+
 def _format(op: dict[str, Any]) -> str:
     header = (
         f"{op['id']}  {op['status']}  {op['action']}  "
@@ -30,7 +49,7 @@ def _list(show_all: bool) -> int:
 
 
 def _approve(ids: list[str]) -> int:
-    if not sys.stdin.isatty():
+    if not _interactive_stdin():
         print("approve needs an interactive terminal", file=sys.stderr)
         return 2
 

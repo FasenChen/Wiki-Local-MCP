@@ -1,11 +1,18 @@
 import io
 
+import pytest
+
 from confluence_mcp import queue, review
 
 
 class TTYInput(io.StringIO):
     def isatty(self):
         return True
+
+
+@pytest.fixture(autouse=True)
+def _console(monkeypatch):
+    monkeypatch.setattr(review, "_console_attached", lambda: True)
 
 
 def _pending():
@@ -26,6 +33,17 @@ def test_approve_refuses_without_tty(monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO("yes\n"))
     assert review.main(["approve", op]) == 2
     assert queue.list_ops()[0]["status"] == "pending"
+
+
+def test_approve_refuses_when_isatty_is_not_a_console(monkeypatch, capsys):
+    op = _pending()
+    monkeypatch.setattr("sys.stdin", TTYInput("yes\n"))
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr(review, "_console_attached", lambda: False, raising=False)
+
+    assert review.main(["approve", op]) == 2
+    assert queue.list_ops()[0]["status"] == "pending"
+    assert "interactive terminal" in capsys.readouterr().err
 
 
 def test_approve_requires_exact_yes(monkeypatch):
