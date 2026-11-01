@@ -16,15 +16,25 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
     error: str | None = None
     try:
         ensure_write_allowed(op["space_key"])
-        if op["kind"] == "update":
+        if op["action"] == "move_page":
+            payload = op["payload"]
+            # movepage.action answers with the moved page, not a version, so record the page id only.
+            client.move_page(op["page_id"], payload["position"], payload["target_id"])
+            result = {"id": op["page_id"], "version": None, "url": None}
+        elif op["kind"] == "update":
             response = client.update_page(op["page_id"], op["payload"])
+            result = {
+                "id": str(response["id"]),
+                "version": (response.get("version") or {}).get("number"),
+                "url": client.page_url(response),
+            }
         else:
             response = client.create_content(op["payload"])
-        result = {
-            "id": str(response["id"]),
-            "version": (response.get("version") or {}).get("number"),
-            "url": client.page_url(response),
-        }
+            result = {
+                "id": str(response["id"]),
+                "version": (response.get("version") or {}).get("number"),
+                "url": client.page_url(response),
+            }
     except ConfluenceConfigurationError as exc:
         status, error = "failed", str(exc)
     except ConfluenceAPIError as exc:
@@ -43,7 +53,10 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
             space_key=op["space_key"],
             version_before=op["version_before"],
             version_after=result["version"],
-            result="updated" if op["kind"] == "update" else "created",
+            result=(
+                "moved" if op["action"] == "move_page"
+                else "updated" if op["kind"] == "update" else "created"
+            ),
         )
     else:
         queue.finish(op["id"], status, error=error)

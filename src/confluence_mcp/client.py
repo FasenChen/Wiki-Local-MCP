@@ -15,6 +15,10 @@ import keyring
 from .credentials import KEYRING_SERVICE, KEYRING_USERNAME
 
 
+# Tool positions -> the values the Confluence move dialog posts to movepage.action.
+MOVE_POSITIONS = {"before": "above", "after": "below", "append": "append"}
+
+
 class ConfluenceConfigurationError(RuntimeError):
     """Raised when required connection settings are missing or invalid."""
 
@@ -190,6 +194,55 @@ class ConfluenceClient:
     def update_page(self, page_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._validate_page_id(page_id)
         return self._request_json("PUT", f"content/{page_id}", json_body=payload)
+
+    def move_page(self, page_id: str, position: str, target_id: str) -> dict[str, Any]:
+        """Move a page before/after a sibling of target_id, or append it under target_id.
+
+        Uses the undocumented movepage.action form that the Data Center page tree posts. It is
+        not under /rest/api, so it is built from the site root. Success is the JSON answer's
+        completedSuccessfully flag, never the HTTP status alone.
+        """
+        self._validate_page_id(page_id)
+        self._validate_page_id(target_id)
+        if position not in MOVE_POSITIONS:
+            raise ValueError(f"position must be one of {', '.join(MOVE_POSITIONS)}.")
+        try:
+            response = self._client.request(
+                "POST",
+                self._site_url("pages/movepage.action"),
+                data={
+                    "pageId": page_id,
+                    "position": MOVE_POSITIONS[position],
+                    "targetId": target_id,
+                    "mode": "LEGACY",
+                },
+                headers={"X-Atlassian-Token": "no-check"},
+            )
+        except httpx.TimeoutException as exc:
+            raise ConfluenceAPIError("The Confluence request timed out.") from exc
+        except httpx.ConnectError as exc:
+            raise ConfluenceAPIError("Could not connect to Confluence.") from exc
+        if response.status_code != 200:
+            raise ConfluenceAPIError(
+                f"Confluence returned HTTP {response.status_code} for the page move.",
+                status_code=response.status_code,
+            )
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ConfluenceAPIError("Confluence returned a non-JSON answer to the move.") from exc
+        if not isinstance(body, dict) or not body.get("authorized", False):
+            raise ConfluenceAPIError("Confluence did not authorize the move.", status_code=401)
+        progress = body.get("progressMeter") or {}
+        if not progress.get("completedSuccessfully") or body.get("validationErrors"):
+            raise ConfluenceAPIError(
+                f"Confluence refused the move: {body.get('validationErrors') or body}",
+                status_code=200,
+            )
+        return body
+
+    def _site_url(self, path: str) -> str:
+        return f"{self._base_url}/{path}"
 
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("GET", path, params=params)

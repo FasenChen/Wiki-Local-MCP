@@ -298,6 +298,17 @@ def test_comment_location_names_its_container_page(call, fake_client):
     assert loc["mode"] == "comment" and _titles(loc) == ["Root", "Guide"]
 
 
+def test_move_location_is_the_moved_page_path(call, fake_client):
+    fake_client.pages["42"] = _page("42", "Guide", [_page("1", "Root")])
+    op = queue.enqueue(
+        "move_page", kind="update", page_id="42", space_key="OPS", version_before=3,
+        summary="Guide → Other before", preview="order",
+        payload={"title": "Guide", "position": "before", "target_id": "43"},
+    )
+    loc = json.loads(call("GET", f"/api/location?id={op}").body)
+    assert loc["mode"] == "move" and _titles(loc) == ["Root", "Guide"]
+
+
 def test_state_exposes_only_derived_provenance_fields(call):
     storage = (
         "> 原文归档：Android TV Ninja\n"

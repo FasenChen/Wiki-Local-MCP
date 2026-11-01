@@ -600,6 +600,135 @@ def add_comment(
     )
 
 
+MOVE_SIBLING_LIMIT = 200
+_POSITION_WORDS = {"before": "之前", "after": "之后", "append": "下（作为最后一个子页面）"}
+
+
+def _sibling_titles(client: Any, parent_id: str) -> tuple[list[dict[str, str]], bool]:
+    children = client.get_child_pages(parent_id, limit=MOVE_SIBLING_LIMIT)
+    items = [{"page_id": str(c.get("id", "")), "title": c.get("title", "")} for c in children]
+    return items, len(children) >= MOVE_SIBLING_LIMIT
+
+
+def _planned_order(
+    siblings: list[dict[str, str]], moved: dict[str, str], position: str, target_id: str
+) -> list[dict[str, str]]:
+    order = [item for item in siblings if item["page_id"] != moved["page_id"]]
+    if position == "append":
+        return order + [moved]
+    index = next(i for i, item in enumerate(order) if item["page_id"] == target_id)
+    return order[: index + (position == "after")] + [moved] + order[index + (position == "after") :]
+
+
+def _order_text(items: list[dict[str, str]], moved_id: str) -> str:
+    return "\n".join(
+        f"{'→' if item['page_id'] == moved_id else ' '} {n}. {item['title']} ({item['page_id']})"
+        for n, item in enumerate(items, 1)
+    )
+
+
+def move_page(
+    page_id: str,
+    position: Literal["before", "after", "append"],
+    target_page_id: str,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Reorder or re-parent a page within its space.
+
+    position="before"/"after" places the page next to the sibling target_page_id (it takes
+    that sibling's parent); position="append" makes it the last child of target_page_id.
+    A dry run shows the sibling order before and after; dry_run=False queues the move for
+    human approval. Queue several moves in order to arrange many pages; they run in that order.
+    """
+    if position not in ("before", "after", "append"):
+        raise ValueError('position must be "before", "after" or "append".')
+    target_page_id = target_page_id.strip()
+    if not target_page_id.isdigit():
+        raise ValueError("target_page_id must contain only digits.")
+    if target_page_id == page_id:
+        raise ValueError("target_page_id must differ from page_id.")
+
+    client = get_client()
+    page = client.get_page(page_id)
+    target = client.get_page(target_page_id)
+    space_key = (page.get("space") or {}).get("key")
+    target_space = (target.get("space") or {}).get("key")
+    if target_space != space_key:
+        raise ValueError(
+            f"Target page {target_page_id} is in space {target_space}, not {space_key}; "
+            "moving between spaces is not supported."
+        )
+    if any(str(a.get("id")) == page_id for a in target.get("ancestors") or []):
+        raise ValueError("Cannot move a page next to or under one of its own descendants.")
+    ensure_write_allowed(space_key)
+
+    old_ancestors = page.get("ancestors") or []
+    old_parent = old_ancestors[-1] if old_ancestors else None
+    if position == "append":
+        new_parent: dict[str, Any] | None = target
+    else:
+        target_ancestors = target.get("ancestors") or []
+        new_parent = target_ancestors[-1] if target_ancestors else None
+    if new_parent is None:
+        raise ValueError(
+            f"Page {target_page_id} is at the top level of space {space_key}; "
+            "moving pages to the space root is not supported."
+        )
+
+    moved = {"page_id": page_id, "title": page.get("title", "")}
+    new_parent_id = str(new_parent.get("id", ""))
+    siblings, truncated = _sibling_titles(client, new_parent_id)
+    if position != "append" and not any(s["page_id"] == target_page_id for s in siblings):
+        raise ConfluenceAPIError(
+            f"Page {target_page_id} was not found among the first {MOVE_SIBLING_LIMIT} children "
+            f"of its parent {new_parent_id}, so the new order cannot be previewed."
+        )
+    order_after = _planned_order(siblings, moved, position, target_page_id)
+    same_parent = old_parent is not None and str(old_parent.get("id")) == new_parent_id
+    if same_parent and [s["page_id"] for s in siblings] == [s["page_id"] for s in order_after]:
+        raise ValueError("The page is already in that position; nothing to move.")
+
+    parent_title = new_parent.get("title", "")
+    target_title = target.get("title", "")
+    preview = (
+        f"移动「{moved['title']}」到「{target_title}」{_POSITION_WORDS[position]}\n"
+        f"原父页面：{old_parent.get('title', '') if old_parent else '(空间根目录)'}\n"
+        f"新父页面：{parent_title}\n\n"
+        f"移动后「{parent_title}」的子页面顺序：\n{_order_text(order_after, page_id)}"
+    )
+    if truncated:
+        preview += f"\n（只读取了前 {MOVE_SIBLING_LIMIT} 个子页面）"
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "action": "move_page",
+            "page_id": page_id,
+            "title": moved["title"],
+            "position": position,
+            "target_page_id": target_page_id,
+            "old_parent_page_id": str(old_parent.get("id")) if old_parent else None,
+            "new_parent_page_id": new_parent_id,
+            "order_before": [s["title"] for s in siblings],
+            "order_after": [s["title"] for s in order_after],
+            "truncated": truncated,
+        }
+
+    payload = {"title": moved["title"], "position": position, "target_id": target_page_id}
+    return _queued(
+        queue.enqueue(
+            "move_page",
+            kind="update",
+            page_id=page_id,
+            space_key=space_key,
+            version_before=(page.get("version") or {}).get("number"),
+            summary=f"{moved['title']} → {target_title} {position}",
+            preview=preview,
+            payload=payload,
+        )
+    )
+
+
 @mcp.tool()
 def get_page_outline(page_id: str) -> dict[str, Any]:
     """List the h1-h6 headings of a page without returning its body."""
@@ -763,6 +892,7 @@ def register_write_tools(server: FastMCP) -> None:
         add_comment,
         update_page,
         update_page_section,
+        move_page,
         list_queued_operations,
         get_queued_operations,
         cancel_queued_operations,

@@ -30,6 +30,7 @@ def test_write_tools_appear_when_enabled(monkeypatch):
         "add_comment",
         "update_page",
         "update_page_section",
+        "move_page",
         "list_queued_operations",
         "get_queued_operations",
         "cancel_queued_operations",

@@ -22,6 +22,8 @@ class FakeClient:
         self.create_response = {}
         self.updated = []
         self.update_response = {}
+        self.moved = []
+        self.move_response = {}
 
     def get_page(self, page_id):
         return self.pages[page_id]
@@ -66,6 +68,10 @@ class FakeClient:
     def update_page(self, page_id, payload):
         self.updated.append(payload)
         return self.update_response
+
+    def move_page(self, page_id, position, target_id):
+        self.moved.append((page_id, position, target_id))
+        return self.move_response
 
     def absolute_url(self, path):
         return f"https://wiki.example.com{path}"

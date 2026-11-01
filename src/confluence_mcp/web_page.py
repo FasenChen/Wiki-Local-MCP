@@ -120,7 +120,8 @@ var $ = function (id) { return document.getElementById(id); };
 var STATE_PATH = "/api/state";
 var APPROVE_PATH = "/api/approve";
 var REJECT_PATH = "/api/reject";
-var ACTIONS = { create_page: "新建页面", add_comment: "新增评论", update_page: "整页更新", update_page_section: "章节更新" };
+var ACTIONS = { create_page: "新建页面", add_comment: "新增评论", update_page: "整页更新", update_page_section: "章节更新", move_page: "调整位置" };
+var LOCATION_LABELS = { comment: "评论所在页面", move: "被移动页面的当前路径", update: "原 Wiki 页面路径（批准后修改此页）" };
 var STATUSES = { pending: "待审批", approved: "已批准·未写入", rejected: "已拒绝", executing: "写入中", succeeded: "已成功", failed: "失败", indeterminate: "结果不明" };
 var LIMITS = "只还原标题、段落、列表、表格、代码块和外部图片。其他宏、附件、样式与权限以 Confluence 页面为准，未还原的宏会在预览中标出。预览在隔离沙箱中显示，不执行脚本。";
 var SECTION_NOTE = "章节更新：下面是整页更新后的完整正文，包含本次替换的章节。";
@@ -176,7 +177,11 @@ function describe(op) {
   var result = executed ? executed.result : op.result;
   var text = "状态: " + status;
   if (error) text += "\n错误: " + error;
-  if (result) text += "\n结果: 页面 " + result.id + ", 版本 " + result.version + ", " + (result.url || "");
+  if (result) {
+    text += "\n结果: 页面 " + result.id;
+    if (result.version != null) text += ", 版本 " + result.version;
+    if (result.url) text += ", " + result.url;
+  }
   return text;
 }
 
@@ -221,7 +226,7 @@ function locationBlock(op) {
     else box.appendChild(el("div", "", "空间 " + loc.space_key + " 根目录"));
     box.appendChild(el("div", "newpage", "新页面：" + (loc.title || op.summary)));
   } else {
-    box.appendChild(el("div", "label", loc.mode === "comment" ? "评论所在页面" : "原 Wiki 页面路径（批准后修改此页）"));
+    box.appendChild(el("div", "label", LOCATION_LABELS[loc.mode] || LOCATION_LABELS.update));
     box.appendChild(crumbs(loc.trail, loc.partial));
   }
   return box;
@@ -266,7 +271,7 @@ function card(op) {
   button.appendChild(tags);
   var meta = [op.id, op.page_id ? "页面 " + op.page_id : "新页面"];
   if (op.version_before) meta.push("基于 v" + op.version_before);
-  if (op.title && op.summary && op.summary !== op.title) meta.push("章节 " + op.summary);
+  if (op.action === "update_page_section" && op.summary && op.summary !== op.title) meta.push("章节 " + op.summary);
   button.appendChild(el("span", "card-meta", meta.join(" · ")));
   button.addEventListener("click", function () { select(op.id); });
   return button;
@@ -316,7 +321,11 @@ function buildPanel(op) {
   var panel = $("panel");
   var key = panelKey;
   panel.replaceChildren();
-  if (tab === "preview") {
+  if (op.action === "move_page") {
+    // A move sends no body, so every tab shows the planned order recorded at enqueue time.
+    panel.appendChild(el("p", "limits", "调整页面位置，不修改正文。下面是入队时计算的移动后顺序；批准时按 Confluence 当时的实际顺序执行。"));
+    panel.appendChild(el("pre", "", op.preview || "(没有记录)"));
+  } else if (tab === "preview") {
     // Concise label always visible; the full limits open in place, and stay open across polls.
     var limits = el("details", "limits");
     limits.appendChild(el("summary", "", "本地近似预览，不等同于 Confluence 渲染"));

@@ -71,6 +71,8 @@ def _location(client: Any, op: dict[str, Any]) -> dict[str, Any]:
     page_id = op["page_id"] or (str(ancestors[-1]["id"]) if ancestors else None)
     if op["action"] == "add_comment":
         mode = "comment"
+    elif op["action"] == "move_page":
+        mode = "move"
     elif op["kind"] == "create":
         mode = "create"
     else:
