@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from confluence_mcp import queue, review
+from confluence_mcp import queue, review, writes
 
 
 class TTYInput(io.StringIO):
@@ -13,6 +13,15 @@ class TTYInput(io.StringIO):
 @pytest.fixture(autouse=True)
 def _console(monkeypatch):
     monkeypatch.setattr(review, "_console_attached", lambda: True)
+
+
+@pytest.fixture(autouse=True)
+def _writes(monkeypatch, tmp_path, fake_client):
+    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+    monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
+    # fake_client only patches server.get_client; review imports its own.
+    monkeypatch.setattr(review, "get_client", lambda: fake_client, raising=False)
 
 
 def _pending():
@@ -53,12 +62,23 @@ def test_approve_requires_exact_yes(monkeypatch):
     assert queue.list_ops()[0]["status"] == "pending"
 
 
-def test_approve_without_ids_approves_all_pending(monkeypatch, capsys):
+def test_approve_without_ids_approves_and_writes_all_pending(monkeypatch, capsys, fake_client):
     a, b = _pending(), _pending()
+    fake_client.update_response = {"id": "42", "version": {"number": 4}}
     monkeypatch.setattr("sys.stdin", TTYInput("yes\n"))
     assert review.main(["approve"]) == 0
-    assert {r["status"] for r in queue.list_ops()} == {"approved"}
+    assert {r["status"] for r in queue.list_ops()} == {"succeeded"}
+    assert len(fake_client.updated) == 2
     assert "-old" in capsys.readouterr().out  # reviewer saw the preview
+
+
+def test_approve_refuses_when_writes_disabled(monkeypatch, capsys, fake_client):
+    op = _pending()
+    monkeypatch.delenv("CONFLUENCE_ENABLE_WRITES")
+    monkeypatch.setattr("sys.stdin", TTYInput("yes\n"))
+    assert review.main(["approve", op]) == 2
+    assert queue.list_ops()[0]["status"] == "pending"
+    assert "CONFLUENCE_ENABLE_WRITES" in capsys.readouterr().err
 
 
 def test_approve_reports_non_pending_ids(monkeypatch, capsys):

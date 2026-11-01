@@ -7,6 +7,9 @@ import sys
 from typing import Any
 
 from . import queue
+from .apply import approve_and_apply
+from .client import get_client
+from .writes import WRITE_FLAG, writes_enabled
 
 
 def _console_attached() -> bool:
@@ -52,21 +55,26 @@ def _approve(ids: list[str]) -> int:
     if not _interactive_stdin():
         print("approve needs an interactive terminal", file=sys.stderr)
         return 2
+    if not writes_enabled():
+        print(f"approve writes to Confluence; set {WRITE_FLAG}=true first", file=sys.stderr)
+        return 2
 
     pending = queue.list_ops(("pending",))
     targets = [op for op in pending if not ids or op["id"] in ids]
     _show(targets)
-    print(f"Approve {len(targets)} operation(s)? Type yes: ", end="", flush=True)
+    print(f"Approve and write {len(targets)} operation(s)? Type yes: ", end="", flush=True)
     if sys.stdin.readline().strip() != "yes":
         print("nothing approved")
         return 1
 
-    approved = queue.approve([op["id"] for op in targets])
-    for op_id in approved:
-        print(f"approved: {op_id}")
-    for op_id in ids:
-        if op_id not in approved:
-            print(f"not pending: {op_id}")
+    target_ids = [op["id"] for op in targets]
+    outcome = approve_and_apply(get_client(), target_ids)
+    for done in outcome["executed"]:
+        print(f"{done['operation_id']}: {done['status']}" + (f" ({done['error']})" if done["error"] else ""))
+    for op_id in outcome["skipped"]:
+        print(f"skipped: {op_id}")
+    for op_id in [*(i for i in ids if i not in target_ids), *outcome["not_pending"]]:
+        print(f"not pending: {op_id}")
     return 0
 
 
