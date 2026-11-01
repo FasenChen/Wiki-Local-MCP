@@ -58,6 +58,8 @@ def _approve(ids: list[str]) -> int:
     if not writes_enabled():
         print(f"approve writes to Confluence; set {WRITE_FLAG}=true first", file=sys.stderr)
         return 2
+    for op_id in queue.recover_stale_executing():
+        print(f"interrupted earlier, outcome unknown (check Confluence): {op_id}")
 
     pending = queue.list_ops(("pending",))
     targets = [op for op in pending if not ids or op["id"] in ids]

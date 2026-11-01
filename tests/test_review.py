@@ -1,4 +1,7 @@
 import io
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -103,6 +106,20 @@ def test_list_hides_finished_unless_all(capsys):
     assert op not in capsys.readouterr().out
     review.main(["list", "--all"])
     assert op in capsys.readouterr().out
+
+
+def test_approve_marks_stale_executing_indeterminate_first(monkeypatch, capsys, fake_client):
+    stuck = _pending()
+    queue.approve([stuck])
+    queue.claim_approved(stuck)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    with closing(sqlite3.connect(queue.QUEUE_PATH)) as conn:
+        conn.execute("UPDATE operations SET updated_at = ? WHERE id = ?", (old, stuck))
+        conn.commit()
+    monkeypatch.setattr("sys.stdin", TTYInput("yes\n"))
+    review.main(["approve"])
+    assert queue.get_op(stuck)["status"] == "indeterminate"
+    assert stuck in capsys.readouterr().out
 
 
 def test_web_refuses_without_tty(monkeypatch, capsys):
