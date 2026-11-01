@@ -18,6 +18,7 @@ def test_write_tools_are_hidden_by_default(monkeypatch):
 
     assert "create_page" not in names
     assert "add_comment" not in names
+    assert "list_queued_operations" not in names
     assert {"search_pages", "get_page", "cql_search"} <= names
 
 
@@ -29,5 +30,9 @@ def test_write_tools_appear_when_enabled(monkeypatch):
         "add_comment",
         "update_page",
         "update_page_section",
+        "list_queued_operations",
+        "get_queued_operations",
+        "cancel_queued_operations",
+        "get_execution_log",
     } <= names
     assert "apply_approved_operations" not in names

@@ -686,12 +686,87 @@ def get_page_by_title(
     }
 
 
+_QUEUE_FIELDS = (
+    "id", "status", "action", "space_key", "page_id", "version_before", "summary", "created_at",
+)
+_ACTIVE = ("pending", "approved", "executing")
+_FINISHED = ("succeeded", "failed", "indeterminate")
+
+
+def _check_paging(page: int, page_size: int) -> None:
+    if page < 1:
+        raise ValueError("page must be at least 1.")
+    if not 1 <= page_size <= 200:
+        raise ValueError("page_size must be between 1 and 200.")
+
+
+def _check_ids(operation_ids: list[str]) -> None:
+    if not 1 <= len(operation_ids) <= 200:
+        raise ValueError("operation_ids must contain between 1 and 200 ids.")
+
+
+def _paged(ops: list[dict[str, Any]], fields: tuple[str, ...], page: int, page_size: int):
+    start = (page - 1) * page_size
+    return {
+        "items": [{key: op[key] for key in fields} for op in ops[start : start + page_size]],
+        "total": len(ops),
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+def list_queued_operations(page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    """List queued writes that are pending, approved or executing, without their payloads."""
+    _check_paging(page, page_size)
+    return _paged(queue.list_ops(_ACTIVE), _QUEUE_FIELDS, page, page_size)
+
+
+def get_queued_operations(operation_ids: list[str]) -> dict[str, Any]:
+    """Read queued writes by id, with their preview, in the order requested."""
+    _check_ids(operation_ids)
+    fields = _QUEUE_FIELDS + ("preview", "result", "error", "updated_at")
+    operations: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for op_id in operation_ids:
+        op = queue.get_op(op_id)
+        if op is None:
+            missing.append(op_id)
+        else:
+            operations.append({key: op[key] for key in fields})
+    return {"operations": operations, "missing": missing}
+
+
+def cancel_queued_operations(operation_ids: list[str]) -> dict[str, Any]:
+    """Withdraw pending writes. Approved, executing and finished ones are left untouched."""
+    _check_ids(operation_ids)
+    cancelled = queue.reject(operation_ids)
+    not_cancelled = []
+    for op_id in operation_ids:
+        if op_id not in cancelled:
+            op = queue.get_op(op_id)
+            not_cancelled.append({"id": op_id, "status": op["status"] if op else "unknown"})
+    return {"cancelled": cancelled, "not_cancelled": not_cancelled}
+
+
+def get_execution_log(page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    """List writes that finished (succeeded, failed or indeterminate), newest first."""
+    _check_paging(page, page_size)
+    finished = sorted(
+        reversed(queue.list_ops(_FINISHED)), key=lambda op: op["updated_at"], reverse=True
+    )
+    return _paged(finished, _QUEUE_FIELDS + ("result", "error", "updated_at"), page, page_size)
+
+
 def register_write_tools(server: FastMCP) -> None:
     for tool in (
         create_page,
         add_comment,
         update_page,
         update_page_section,
+        list_queued_operations,
+        get_queued_operations,
+        cancel_queued_operations,
+        get_execution_log,
     ):
         server.tool()(tool)
 
