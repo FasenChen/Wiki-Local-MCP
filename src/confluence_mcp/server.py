@@ -7,15 +7,34 @@ from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
-from .client import ConfluenceAPIError, get_client, quote_cql
+from . import queue
+from .client import (
+    ConfluenceAPIError,
+    get_client,
+    quote_cql,
+)
 from .conversion import storage_to_markdown
 from .markdown_storage import contains_macro, markdown_to_storage
 from .outline import extract_section, find_headings, replace_section
-from .writes import audit_write, ensure_write_allowed, writes_enabled
+from .writes import ensure_write_allowed, writes_enabled
 
 mcp = FastMCP("confluence")
 OutputFormat = Literal["markdown", "html", "storage"]
 MAX_CHILD_NODES = 200
+PENDING_MESSAGE = (
+    "Queued, not executed. A person must approve it outside MCP with "
+    "`confluence-mcp-review web` or `confluence-mcp-review approve`, which then writes it."
+)
+
+
+def _queued(op_id: str) -> dict[str, Any]:
+    return {
+        "dry_run": False,
+        "queued": True,
+        "operation_id": op_id,
+        "status": "pending",
+        "message": PENDING_MESSAGE,
+    }
 
 
 def _cql_escape(value: str, name: str) -> str:
@@ -288,7 +307,10 @@ def update_page_section(
     change_message: str = "",
     max_chars: int = 4000,
 ) -> dict[str, Any]:
-    """Replace one heading section, preserving the rest of the page byte for byte."""
+    """Replace one heading section, preserving the rest of the page byte for byte.
+
+    A dry run previews the change; dry_run=False queues it for human approval.
+    """
     section_title = section_title.strip()
     if not section_title:
         raise ValueError("section_title must not be empty.")
@@ -344,16 +366,18 @@ def update_page_section(
         },
         "body": {"storage": {"representation": "storage", "value": new_storage}},
     }
-    updated = client.update_page(page_id, payload)
-    audit_write(
-        "update_page_section",
-        page_id=page_id,
-        space_key=space_key,
-        version_before=current,
-        version_after=current + 1,
-        result="updated",
+    return _queued(
+        queue.enqueue(
+            "update_page_section",
+            kind="update",
+            page_id=page_id,
+            space_key=space_key,
+            version_before=current,
+            summary=heading.title,
+            preview=diff,
+            payload=payload,
+        )
     )
-    return {"dry_run": False, **_page_summary(updated, client)}
 
 
 def update_page(
@@ -367,7 +391,10 @@ def update_page(
     change_message: str = "",
     max_chars: int = 4000,
 ) -> dict[str, Any]:
-    """Replace a page body, guarded by an expected version. Defaults to a dry run."""
+    """Replace a page body, guarded by an expected version.
+
+    A dry run previews the change; dry_run=False queues it for human approval.
+    """
     if expected_version < 1:
         raise ValueError("expected_version must be at least 1.")
     if max_chars < 1:
@@ -432,16 +459,18 @@ def update_page(
         },
         "body": {"storage": {"representation": "storage", "value": new_storage}},
     }
-    updated = client.update_page(page_id, payload)
-    audit_write(
-        "update_page",
-        page_id=page_id,
-        space_key=space_key,
-        version_before=current,
-        version_after=current + 1,
-        result="updated",
+    return _queued(
+        queue.enqueue(
+            "update_page",
+            kind="update",
+            page_id=page_id,
+            space_key=space_key,
+            version_before=current,
+            summary=new_title,
+            preview=diff,
+            payload=payload,
+        )
     )
-    return {"dry_run": False, **_page_summary(updated, client)}
 
 
 def create_page(
@@ -451,7 +480,10 @@ def create_page(
     parent_page_id: str | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
-    """Create a page from Markdown. Defaults to a dry run that posts nothing."""
+    """Create a page from Markdown.
+
+    A dry run previews the change; dry_run=False queues it for human approval.
+    """
     space_key = space_key.strip()
     title = title.strip()
     if not space_key:
@@ -504,19 +536,18 @@ def create_page(
     }
     if ancestors:
         payload["ancestors"] = ancestors
-    created = client.create_content(payload)
-    audit_write(
-        "create_page",
-        page_id=str(created.get("id", "")),
-        space_key=space_key,
-        version_before=None,
-        version_after=(created.get("version") or {}).get("number"),
-        result="created",
+    return _queued(
+        queue.enqueue(
+            "create_page",
+            kind="create",
+            page_id=None,
+            space_key=space_key,
+            version_before=None,
+            summary=title,
+            preview=content_markdown,
+            payload=payload,
+        )
     )
-    return {
-        "dry_run": False,
-        **_page_summary(created, client),
-    }
 
 
 def add_comment(
@@ -525,7 +556,10 @@ def add_comment(
     parent_comment_id: str | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
-    """Add a page comment from Markdown. Defaults to a dry run that posts nothing."""
+    """Add a page comment from Markdown.
+
+    A dry run previews the change; dry_run=False queues it for human approval.
+    """
     if not content_markdown.strip():
         raise ValueError("content_markdown must not be empty.")
     if parent_comment_id is not None and not parent_comment_id.isdigit():
@@ -552,21 +586,18 @@ def add_comment(
     }
     if parent_comment_id is not None:
         payload["ancestors"] = [{"id": parent_comment_id}]
-    created = client.create_content(payload)
-    audit_write(
-        "add_comment",
-        page_id=page_id,
-        space_key=space_key,
-        version_before=None,
-        version_after=None,
-        result="created",
+    return _queued(
+        queue.enqueue(
+            "add_comment",
+            kind="create",
+            page_id=page_id,
+            space_key=space_key,
+            version_before=None,
+            summary=f"comment on page {page_id}",
+            preview=content_markdown,
+            payload=payload,
+        )
     )
-    return {
-        "dry_run": False,
-        "comment_id": str(created.get("id", "")),
-        "page_id": page_id,
-        "url": client.page_url(created),
-    }
 
 
 @mcp.tool()
@@ -655,8 +686,88 @@ def get_page_by_title(
     }
 
 
+_QUEUE_FIELDS = (
+    "id", "status", "action", "space_key", "page_id", "version_before", "summary", "created_at",
+)
+_ACTIVE = ("pending", "approved", "executing")
+_FINISHED = ("succeeded", "failed", "indeterminate")
+
+
+def _check_paging(page: int, page_size: int) -> None:
+    if page < 1:
+        raise ValueError("page must be at least 1.")
+    if not 1 <= page_size <= 200:
+        raise ValueError("page_size must be between 1 and 200.")
+
+
+def _check_ids(operation_ids: list[str]) -> None:
+    if not 1 <= len(operation_ids) <= 200:
+        raise ValueError("operation_ids must contain between 1 and 200 ids.")
+
+
+def _paged(ops: list[dict[str, Any]], fields: tuple[str, ...], page: int, page_size: int):
+    start = (page - 1) * page_size
+    return {
+        "items": [{key: op[key] for key in fields} for op in ops[start : start + page_size]],
+        "total": len(ops),
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+def list_queued_operations(page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    """List queued writes that are pending, approved or executing, without their payloads."""
+    _check_paging(page, page_size)
+    return _paged(queue.list_ops(_ACTIVE), _QUEUE_FIELDS, page, page_size)
+
+
+def get_queued_operations(operation_ids: list[str]) -> dict[str, Any]:
+    """Read queued writes by id, with their preview, in the order requested."""
+    _check_ids(operation_ids)
+    fields = _QUEUE_FIELDS + ("preview", "result", "error", "updated_at")
+    operations: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for op_id in operation_ids:
+        op = queue.get_op(op_id)
+        if op is None:
+            missing.append(op_id)
+        else:
+            operations.append({key: op[key] for key in fields})
+    return {"operations": operations, "missing": missing}
+
+
+def cancel_queued_operations(operation_ids: list[str]) -> dict[str, Any]:
+    """Withdraw pending writes. Approved, executing and finished ones are left untouched."""
+    _check_ids(operation_ids)
+    cancelled = queue.reject(operation_ids)
+    not_cancelled = []
+    for op_id in operation_ids:
+        if op_id not in cancelled:
+            op = queue.get_op(op_id)
+            not_cancelled.append({"id": op_id, "status": op["status"] if op else "unknown"})
+    return {"cancelled": cancelled, "not_cancelled": not_cancelled}
+
+
+def get_execution_log(page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    """List writes that finished (succeeded, failed or indeterminate), newest first."""
+    _check_paging(page, page_size)
+    finished = sorted(
+        reversed(queue.list_ops(_FINISHED)), key=lambda op: op["updated_at"], reverse=True
+    )
+    return _paged(finished, _QUEUE_FIELDS + ("result", "error", "updated_at"), page, page_size)
+
+
 def register_write_tools(server: FastMCP) -> None:
-    for tool in (create_page, add_comment, update_page, update_page_section):
+    for tool in (
+        create_page,
+        add_comment,
+        update_page,
+        update_page_section,
+        list_queued_operations,
+        get_queued_operations,
+        cancel_queued_operations,
+        get_execution_log,
+    ):
         server.tool()(tool)
 
 

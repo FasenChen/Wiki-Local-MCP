@@ -1,6 +1,13 @@
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolated_queue(monkeypatch, tmp_path):
+    from confluence_mcp import queue
+
+    monkeypatch.setattr(queue, "QUEUE_PATH", tmp_path / "queue.sqlite3")
+
+
 class FakeClient:
     def __init__(self):
         self.pages = {}

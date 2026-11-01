@@ -14,8 +14,9 @@
 - `get_comments`：读取页面评论并转 Markdown，保留回复的父评论 ID。
 - `get_children`：读取子页面树，最多 3 层，单次调用总节点上限 200。
 - `get_page_history`：列出版本历史，或对两个版本做 Markdown diff（默认 4000 字符上限）。8.5.15 实测 `/rest/api/content/{id}/version` 可用；不可用时自动回退到 `/rest/experimental`。
-- `create_page` / `add_comment`（需开启写操作）：从 Markdown 创建页面或评论；默认 `dry_run=true`，只返回预览。
-- `update_page` / `update_page_section`（需开启写操作）：整页或单节更新；必须传 `expected_version`，整页 Markdown 更新默认拒绝含宏页面，单节更新只替换目标章节。
+- `create_page` / `add_comment`（需开启写操作）：从 Markdown 创建页面或评论；默认 `dry_run=true` 只返回预览，`dry_run=false` 入队等待人工审批。
+- `update_page` / `update_page_section`（需开启写操作）：整页或单节更新；必须传 `expected_version`，整页 Markdown 更新默认拒绝含宏页面，单节更新只替换目标章节；`dry_run=false` 入队等待人工审批。
+- `list_queued_operations` / `get_queued_operations` / `cancel_queued_operations` / `get_execution_log`（需开启写操作）：查看自己入队的操作和 diff 预览、撤回尚未审批（`pending`）的操作、读取已结束操作的结果。MCP 无法批准或执行任何操作，也无法撤回已批准的操作。
 - 页面内容可返回 Markdown、Confluence 渲染 HTML 或原始 storage XHTML。
 
 页面 ID 可从页面链接中的 `pageId` 参数，或从 `.../pages/<数字>/...` 路径中取得。也可以先用 `search_pages` 或 `get_page_by_title` 查找页面。
@@ -84,7 +85,8 @@ MCP Host 的注册别名统一使用 `wiki-local-mcp`。Claude Code 用户在 `~
 在 Codex 的 MCP 工具列表中确认出现 `search_pages`、`get_page` 和 `get_page_by_title`。调用 `search_pages` 搜索一个有权限查看的词，或调用 `get_page` 读取 Page ID。MCP 运行机器必须能通过公司网络/VPN 访问 Confluence。
 
 若公司使用内部 CA，将证书包路径设置到 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`；TLS 验证默认开启，不要关闭验证。服务不会自动读取 `.env` 文件。
-## 启用写操作（可选）
+
+## 启用写操作与人工审批（可选）
 
 默认情况下服务器不注册任何写工具。启用方式是在 MCP 配置的 `env` 中加入：
 
@@ -93,10 +95,46 @@ CONFLUENCE_ENABLE_WRITES = "true"
 CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
 ```
 
-所有写工具默认 `dry_run=true`：只返回将要发生的变更（目标、storage 预览），
-调用方确认后再传 `dry_run=false`。真实写入会追加到
-`%USERPROFILE%\.confluence-mcp\audit.log`（JSON Lines，不含页面正文和 PAT）。
-修改页面时必须提供 `expected_version`，版本不一致会直接报冲突。日常修改优先用 `update_page_section`：它只替换目标章节，页面其余宏和章节原样保留。
+所有写工具默认 `dry_run=true`：只返回将要发生的变更（目标、storage 预览）。
+传 `dry_run=false` 不会写入 Confluence，而是把最终请求 payload 存入本地队列
+`%USERPROFILE%\.confluence-mcp\queue.sqlite3`，状态为 `pending`。
+
+流程：
+
+1. 写工具 `dry_run=false` → 入队，返回 `operation_id` 和 `pending` 状态。
+2. 在你自己的终端里审批（需要真实的交互式控制台，Agent 无法替你启动），二选一：
+   - 网页：`uv run confluence-mcp-review web`。在本机 `127.0.0.1` 打开审批页，左边是待审批列表，
+     右边是该条的完整 diff；点“批准”会立即写入 Confluence，“全部批准”会先确认条数。
+   - 终端：`uv run confluence-mcp-review approve <id>`。不带 id 表示审批全部 `pending`，
+     需输入 `yes`，确认后立即写入。
+
+   `uv run confluence-mcp-review`（等同 `list`）查看队列；`reject <id>` 可随时拒绝，无需交互式终端。
+   `web` 和 `approve` 都要求设置 `CONFLUENCE_ENABLE_WRITES=true`。
+3. 批准即写入：每条操作最多发送一次，失败不自动重试。原来的 `apply_approved_operations` 工具已移除。
+   Agent 可以用 `list_queued_operations` 看队列，用 `cancel_queued_operations` 撤回尚未审批的操作。
+
+状态：`pending`（待审批）、`approved`（已批准）、`rejected`（已拒绝）、
+`executing`（正在发送）、`succeeded`（已成功）、`failed`（Confluence 明确拒绝，
+例如版本冲突 409）、`indeterminate`（结果未知，例如超时）。
+
+`indeterminate` 和卡在 `executing` 的操作永远不会自动重试：先到 Confluence
+确认页面是否已被修改，再决定手动处理。批量写入遇到 `indeterminate` 会立即停止，
+其余未处理的操作保持 `pending`。启动 `web` 时，超过 5 分钟仍是 `executing` 的操作会被改成
+`indeterminate`（说明写入过程中进程中断过）。更新请求携带入队时绑定的
+`version.number = 当前版本 + 1`；如果页面在审批期间被他人修改，Confluence 返回
+409，该操作变为 `failed`，不会覆盖新版本。
+
+成功执行的写入会追加到 `%USERPROFILE%\.confluence-mcp\audit.log`
+（JSON Lines，不含页面正文和 PAT）。
+
+已知边界：
+
+- 该队列阻止的是通过 MCP 的提示注入或误写。它不能阻止一个拥有 shell、
+  能以同一 OS 用户运行、能附加 PTY 或读取 PAT 的 agent；Jira-local-MCP 也有同样的限制。
+- 审批页的一次性令牌只能挡住别的网页和别的机器，挡不住本机上权限相同的恶意进程。
+- SQLite 队列和审计日志不防同一系统用户的篡改，不是不可抵赖的审计，不要把它当作生产级审计记录。
+- 队列数据库有版本号（`PRAGMA user_version`）。遇到不认识的版本或表结构会拒绝打开并报出文件路径，
+  不做自动迁移；请先检查或移走该文件。
 
 ## 常用调用
 
@@ -109,7 +147,12 @@ CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
 - 只读一节：`get_page(page_id="123456", section="部署步骤")`
 - 限制长度：`get_page(page_id="123456", max_chars=4000)`
 - 预览创建页面（不写入）：`create_page(space_key="OPS", title="标题", content_markdown="## 内容", dry_run=True)`
+- 排队创建页面（待人工审批）：`create_page(space_key="OPS", title="标题", content_markdown="## 内容", dry_run=False)`
 - 预览评论（不写入）：`add_comment(page_id="123456", content_markdown="评审意见", dry_run=True)`
+- 排队评论（待人工审批）：`add_comment(page_id="123456", content_markdown="评审意见", dry_run=False)`
+- 查看待审批队列：终端运行 `uv run confluence-mcp-review`
+- 网页审批并写入：终端运行 `uv run confluence-mcp-review web`
+- 看自己入队的操作：`list_queued_operations()`；撤回未审批的：`cancel_queued_operations(operation_ids=["..."])`
 
 `section` 只支持 `markdown` / `storage` 输出；`html` 是整个 `body.view`，无法按章节切分。
 

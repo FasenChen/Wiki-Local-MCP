@@ -1,6 +1,6 @@
 import pytest
 
-from confluence_mcp import server, writes
+from confluence_mcp import queue, server
 from confluence_mcp.client import ConfluenceAPIError
 
 
@@ -69,36 +69,29 @@ def test_update_page_accepts_storage_format(fake_client, monkeypatch):
     assert "+raw" in result["diff"]
 
 
-def test_update_page_posts_new_version_and_audits(fake_client, monkeypatch, tmp_path):
+def test_update_page_queues_bound_payload(fake_client, monkeypatch):
     monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
     fake_client.pages["42"] = page()
-    fake_client.update_response = page(version=4, storage="<p>new</p>")
 
-    result = server.update_page(
-        "42",
-        expected_version=3,
-        content="new",
-        dry_run=False,
-        change_message="sync docs",
-    )
+    result = server.update_page("42", expected_version=3, content="new", dry_run=False)
 
-    payload = fake_client.updated[0]
-    assert payload["version"] == {"number": 4, "message": "[MCP] sync docs"}
-    assert payload["body"]["storage"] == {"representation": "storage", "value": "<p>new</p>"}
-    assert result["dry_run"] is False
-    assert result["version"] == 4
-    assert "update_page" in (tmp_path / "audit.log").read_text(encoding="utf-8")
+    assert result["queued"] is True and result["status"] == "pending"
+    assert fake_client.updated == []
+    [op] = queue.list_ops()
+    assert op["id"] == result["operation_id"]
+    assert op["kind"] == "update" and op["version_before"] == 3
+    assert op["payload"]["version"]["number"] == 4
+    assert op["payload"]["title"] == "Guide"
+    assert "+new" in op["preview"]
 
 
 def test_update_page_keeps_title_when_not_provided(fake_client, monkeypatch):
     monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page()
-    fake_client.update_response = page(version=4)
 
     server.update_page("42", expected_version=3, content="new", dry_run=False)
 
-    assert fake_client.updated[0]["title"] == "Guide"
+    assert queue.list_ops()[0]["payload"]["title"] == "Guide"
 
 
 def test_update_page_rejects_empty_content(fake_client, monkeypatch):
