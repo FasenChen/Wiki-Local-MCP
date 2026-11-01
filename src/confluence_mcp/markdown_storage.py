@@ -19,7 +19,8 @@ def markdown_to_storage(markdown_text: str) -> str:
         extensions=["tables", "fenced_code"],
         output_format="xhtml",
     )
-    return _CODE_BLOCK.sub(_code_macro, rendered)
+    # Raw inline <br> passes through Markdown unchanged; storage XHTML must self-close it or Confluence returns 400.
+    return _CODE_BLOCK.sub(_code_macro, rendered.replace("<br>", "<br />"))
 
 
 def _code_macro(match: re.Match[str]) -> str:

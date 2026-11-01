@@ -44,3 +44,12 @@ def test_cdata_terminator_is_split():
 def test_contains_macro_detects_structured_macros():
     assert contains_macro('<ac:structured-macro ac:name="toc"/>') is True
     assert contains_macro("<p>plain</p>") is False
+
+
+def test_inline_br_in_table_cell_is_self_closed():
+    import xml.etree.ElementTree as ET
+
+    storage = markdown_to_storage("| a | b |\n|---|---|\n| x<br>y | z |")
+
+    assert "<br />" in storage and "<br>" not in storage
+    ET.fromstring(f'<root xmlns:ac="ac" xmlns:ri="ri">{storage}</root>')  # well-formed XHTML
