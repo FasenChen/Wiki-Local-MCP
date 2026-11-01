@@ -10,21 +10,20 @@ from mcp.server.fastmcp import FastMCP
 from . import queue
 from .client import (
     ConfluenceAPIError,
-    ConfluenceConfigurationError,
     get_client,
     quote_cql,
 )
 from .conversion import storage_to_markdown
 from .markdown_storage import contains_macro, markdown_to_storage
 from .outline import extract_section, find_headings, replace_section
-from .writes import audit_write, ensure_write_allowed, writes_enabled
+from .writes import ensure_write_allowed, writes_enabled
 
 mcp = FastMCP("confluence")
 OutputFormat = Literal["markdown", "html", "storage"]
 MAX_CHILD_NODES = 200
 PENDING_MESSAGE = (
     "Queued, not executed. A person must approve it outside MCP with "
-    "`confluence-mcp-review approve`, then call apply_approved_operations."
+    "`confluence-mcp-review web` or `confluence-mcp-review approve`, which then writes it."
 )
 
 
@@ -687,78 +686,12 @@ def get_page_by_title(
     }
 
 
-def apply_approved_operations() -> dict[str, Any]:
-    """Send writes a person already approved with confluence-mcp-review.
-
-    Cannot approve anything; pending operations are left untouched. Each operation
-    is sent at most once; an unknown outcome is marked indeterminate and never retried.
-    """
-    client = get_client()
-    executed: list[dict[str, Any]] = []
-
-    while (op := queue.claim_next_approved()) is not None:
-        status = "succeeded"
-        result: dict[str, Any] | None = None
-        error: str | None = None
-        try:
-            ensure_write_allowed(op["space_key"])
-            if op["kind"] == "update":
-                response = client.update_page(op["page_id"], op["payload"])
-            else:
-                response = client.create_content(op["payload"])
-            result = {
-                "id": str(response["id"]),
-                "version": (response.get("version") or {}).get("number"),
-                "url": client.page_url(response),
-            }
-        except ConfluenceConfigurationError as exc:
-            status, error = "failed", str(exc)
-        except ConfluenceAPIError as exc:
-            # A status code means Confluence answered and rejected; no status means
-            # the outcome is unknown, so the operation must never be retried.
-            status = "failed" if exc.status_code is not None else "indeterminate"
-            error = str(exc)
-        except Exception as exc:
-            status, error = "indeterminate", str(exc)
-
-        if status == "succeeded":
-            queue.finish(op["id"], "succeeded", result=result)
-            audit_write(
-                op["action"],
-                page_id=op["page_id"] or result["id"],
-                space_key=op["space_key"],
-                version_before=op["version_before"],
-                version_after=result["version"],
-                result="updated" if op["kind"] == "update" else "created",
-            )
-        else:
-            queue.finish(op["id"], status, error=error)
-
-        executed.append(
-            {
-                "operation_id": op["id"],
-                "action": op["action"],
-                "status": status,
-                "result": result,
-                "error": error,
-            }
-        )
-        if status == "indeterminate":
-            break
-
-    return {
-        "executed": executed,
-        "pending_approval": len(queue.list_ops(("pending",))),
-    }
-
-
 def register_write_tools(server: FastMCP) -> None:
     for tool in (
         create_page,
         add_comment,
         update_page,
         update_page_section,
-        apply_approved_operations,
     ):
         server.tool()(tool)
 
