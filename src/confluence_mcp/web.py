@@ -13,19 +13,42 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import queue
 from .apply import approve_and_apply
+from .preview import provenance, proposed_storage, render_document
 from .web_page import PAGE
 
 COOKIE = "cmr_session"
 MAX_BODY = 64 * 1024
-CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'"
+CSP = (
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+    "connect-src 'self'; frame-src 'self'"
+)
+# The rendered body is untrusted, so its document is sandboxed even when framed directly.
+PREVIEW_CSP = (
+    "default-src 'none'; img-src http: https:; style-src 'unsafe-inline'; base-uri 'none'; "
+    "form-action 'none'; frame-ancestors 'self'; sandbox"
+)
 _ACTIVE = ("pending", "approved", "executing")
 _FIELDS = (
     "id", "status", "action", "kind", "space_key", "page_id", "version_before",
     "summary", "preview", "result", "error", "created_at", "updated_at",
 )
 _FINISHED_SHOWN = 20
+_TITLE_MAX = 300
+_PER_OPERATION = ("/api/body", "/api/render", "/api/location")
 # Serializes sends so two clicks on one operation cannot race for the claim.
 _apply_lock = threading.Lock()
+
+
+def _view(op: dict[str, Any]) -> dict[str, Any]:
+    view = {key: op[key] for key in _FIELDS}
+    # The page title lives only in the payload; a section update's summary is the heading.
+    title = op["payload"].get("title")
+    view["title"] = title[:_TITLE_MAX] if isinstance(title, str) else None
+    # Explicit provenance labels only (see preview.provenance); derived locally, no Confluence read.
+    info = provenance(proposed_storage(op)) or {}
+    view["collection"] = info.get("collection")
+    view["source"] = info.get("source")
+    return view
 
 
 def _state() -> dict[str, Any]:
@@ -34,7 +57,40 @@ def _state() -> dict[str, Any]:
     finished = sorted(
         (op for op in ops if op["status"] not in _ACTIVE), key=lambda op: op["updated_at"]
     )[-_FINISHED_SHOWN:]
-    return {"operations": [{key: op[key] for key in _FIELDS} for op in active + finished]}
+    return {"operations": [_view(op) for op in active + finished]}
+
+
+def _location(client: Any, op: dict[str, Any]) -> dict[str, Any]:
+    """Where a queued write lands: the page it changes, its container, or a new page's parent.
+
+    Read on demand for one operation and never stored, so the queue is not touched.
+    """
+    payload = op["payload"]
+    ancestors = payload.get("ancestors") or []
+    # A create names its parent only in the payload, so the queue row has no page_id for it.
+    page_id = op["page_id"] or (str(ancestors[-1]["id"]) if ancestors else None)
+    if op["action"] == "add_comment":
+        mode = "comment"
+    elif op["kind"] == "create":
+        mode = "create"
+    else:
+        mode = "update"
+    location: dict[str, Any] = {
+        "mode": mode,
+        "space_key": op["space_key"],
+        "title": payload.get("title"),
+        "trail": [],
+        "partial": False,
+    }
+    if page_id is None:
+        return location
+    page = client.get_page(page_id)
+    trail = [*(page.get("ancestors") or []), page]
+    location["trail"] = [
+        {"title": item.get("title") or "", "url": client.page_url(item)} for item in trail
+    ]
+    location["partial"] = "ancestors" not in page
+    return location
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -48,13 +104,14 @@ class _Handler(BaseHTTPRequestHandler):
         body: bytes = b"",
         content_type: str = "application/json",
         headers: tuple[tuple[str, str], ...] = (),
+        frame: str = "DENY",
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Frame-Options", frame)
         for name, value in headers:
             self.send_header(name, value)
         self.end_headers()
@@ -119,6 +176,28 @@ class _Handler(BaseHTTPRequestHandler):
             return None
         return ids
 
+    def _per_operation(self, path: str, op_id: str) -> None:
+        op = queue.get_op(op_id) if op_id else None
+        if op is None:
+            self._json(404, {"error": "not found"})
+        elif path == "/api/body":
+            self._json(200, {"storage": proposed_storage(op)})
+        elif path == "/api/render":
+            self._send(
+                200,
+                render_document(proposed_storage(op)).encode("utf-8"),
+                "text/html; charset=utf-8",
+                (("Content-Security-Policy", PREVIEW_CSP),),
+                frame="SAMEORIGIN",
+            )
+        else:
+            try:
+                location = _location(self.server.client, op)
+            except Exception as exc:
+                self._json(502, {"error": str(exc)})
+                return
+            self._json(200, location)
+
     def do_GET(self) -> None:
         url = urlsplit(self.path)
         token = parse_qs(url.query).get("token")
@@ -142,6 +221,8 @@ class _Handler(BaseHTTPRequestHandler):
             )
         elif url.path == "/api/state":
             self._json(200, _state())
+        elif url.path in _PER_OPERATION:
+            self._per_operation(url.path, parse_qs(url.query).get("id", [""])[0])
         else:
             self._json(404, {"error": "not found"})
 

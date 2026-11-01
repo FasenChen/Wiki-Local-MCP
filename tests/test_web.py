@@ -166,6 +166,173 @@ def test_bad_body_is_400_and_changes_nothing(call, fake_client, body):
     assert queue.list_ops()[0]["status"] == "pending" and fake_client.updated == []
 
 
-def test_page_never_uses_innerhtml():
-    assert "innerHTML" not in web_page.PAGE and "outerHTML" not in web_page.PAGE
+def test_page_never_writes_untrusted_html_into_its_dom():
+    # The approval page may not parse HTML from operation data; the body is only ever a
+    # sandboxed frame whose src is the server's rendered preview.
+    for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "srcdoc"):
+        assert banned not in web_page.PAGE
     assert "textContent" in web_page.PAGE
+    assert 'setAttribute("sandbox", "")' in web_page.PAGE
+    assert 'frame.src = "/api/render?id="' in web_page.PAGE
+
+
+def test_split_divider_is_keyboard_operable():
+    assert 'role="separator"' in web_page.PAGE and 'tabindex="0"' in web_page.PAGE
+    assert 'addEventListener("keydown"' in web_page.PAGE
+
+
+STATE = "/api/state"
+
+
+def _with_body(storage, **overrides):
+    payload = {
+        "title": "Guide",
+        "version": {"number": 4},
+        "body": {"storage": {"representation": "storage", "value": storage}},
+    }
+    return _pending(payload=payload, **overrides)
+
+
+def _page(page_id, title, ancestors=None):
+    page = {"id": page_id, "title": title, "space": {"key": "OPS"}}
+    if ancestors is not None:
+        page["ancestors"] = ancestors
+    return page
+
+
+def _titles(location):
+    return [item["title"] for item in location["trail"]]
+
+
+def test_state_title_comes_from_payload_and_body_stays_hidden(call):
+    op = _with_body("<h1>Guide</h1><p>secret body</p>", summary="Install")
+    r = call("GET", STATE)
+    [item] = json.loads(r.body)["operations"]
+    assert item["id"] == op and item["title"] == "Guide" and item["summary"] == "Install"
+    assert b"secret body" not in r.body
+
+
+def test_source_and_preview_use_proposed_body_not_the_diff(call):
+    op = _with_body("<h2>New</h2><p>x</p>")  # the stored preview is "-old\n+new"
+    body = json.loads(call("GET", f"/api/body?id={op}").body)
+    assert body == {"storage": "<h2>New</h2><p>x</p>"}
+    rendered = call("GET", f"/api/render?id={op}").body
+    assert b"<h2>New</h2>" in rendered and b"-old" not in rendered
+
+
+def test_render_is_sandboxed_and_framed_only_by_this_origin(call):
+    op = _with_body("<p>x</p>")
+    r = call("GET", f"/api/render?id={op}")
+    assert r.status == 200 and r.headers["Content-Type"].startswith("text/html")
+    directives = r.headers["Content-Security-Policy"].split("; ")
+    assert "sandbox" in directives and "default-src 'none'" in directives
+    assert "frame-ancestors 'self'" in directives
+    assert r.headers["X-Frame-Options"] == "SAMEORIGIN"
+
+
+def test_hostile_body_is_neutralised_in_the_rendered_document(call):
+    op = _with_body(
+        '<p onclick="x()">hi</p><script>alert(1)</script><img src="x" onerror="alert(1)">'
+        '<ac:structured-macro ac:name="jira"/>'
+    )
+    body = call("GET", f"/api/render?id={op}").body.decode("utf-8")
+    assert "<script" not in body and "onclick" not in body and "onerror" not in body
+    assert "宏未渲染：jira" in body
+
+
+def test_preview_body_and_location_need_the_session_cookie(call):
+    op = _with_body("<p>x</p>")
+    for path in (f"/api/render?id={op}", f"/api/body?id={op}", f"/api/location?id={op}"):
+        assert call("GET", path, cookie=False).status == 403
+
+
+def test_unknown_operation_is_404_on_each_per_operation_route(call):
+    for path in ("/api/render?id=nope", "/api/body?id=nope", "/api/location?id=nope"):
+        assert call("GET", path).status == 404
+
+
+def test_update_location_is_the_original_page_path(call, fake_client):
+    fake_client.pages["42"] = _page("42", "Guide", [_page("1", "Root"), _page("7", "Ops")])
+    op = _pending()
+    loc = json.loads(call("GET", f"/api/location?id={op}").body)
+    assert loc["mode"] == "update" and loc["partial"] is False
+    assert _titles(loc) == ["Root", "Ops", "Guide"]
+    assert loc["trail"][-1]["url"] == "https://wiki.example.com/pages/42"
+
+
+def test_update_location_marks_a_missing_ancestor_list_as_partial(call, fake_client):
+    fake_client.pages["42"] = _page("42", "Guide")
+    loc = json.loads(call("GET", f"/api/location?id={_pending()}").body)
+    assert loc["partial"] is True and _titles(loc) == ["Guide"]
+
+
+def test_create_location_shows_full_parent_path_and_new_title(call, fake_client):
+    fake_client.pages["7"] = _page("7", "Ops", [_page("1", "Root")])
+    op = queue.enqueue(
+        "create_page", kind="create", page_id=None, space_key="OPS", version_before=None,
+        summary="Runbook", preview="# Runbook",
+        payload={"type": "page", "title": "Runbook", "ancestors": [{"id": "7"}]},
+    )
+    loc = json.loads(call("GET", f"/api/location?id={op}").body)
+    assert loc["mode"] == "create" and loc["title"] == "Runbook"
+    assert _titles(loc) == ["Root", "Ops"]
+
+
+def test_root_create_location_makes_no_confluence_read(call):
+    op = queue.enqueue(
+        "create_page", kind="create", page_id=None, space_key="OPS", version_before=None,
+        summary="Top", preview="# Top", payload={"title": "Top"},
+    )
+    loc = json.loads(call("GET", f"/api/location?id={op}").body)
+    assert loc == {"mode": "create", "space_key": "OPS", "title": "Top", "trail": [], "partial": False}
+
+
+def test_comment_location_names_its_container_page(call, fake_client):
+    fake_client.pages["42"] = _page("42", "Guide", [_page("1", "Root")])
+    op = queue.enqueue(
+        "add_comment", kind="create", page_id="42", space_key="OPS", version_before=None,
+        summary="comment on page 42", preview="LGTM",
+        payload={"type": "comment", "container": {"id": "42", "type": "page"}},
+    )
+    loc = json.loads(call("GET", f"/api/location?id={op}").body)
+    assert loc["mode"] == "comment" and _titles(loc) == ["Root", "Guide"]
+
+
+def test_state_exposes_only_derived_provenance_fields(call):
+    storage = (
+        "> 原文归档：Android TV Ninja\n"
+        "> 来源：[Overview](https://docs.netflixpartners.com/ninja/documentation/overview)\n\n"
+        "secret body"
+    )
+    from confluence_mcp.markdown_storage import markdown_to_storage
+
+    provenance_op = _with_body(markdown_to_storage(storage))
+    plain = _with_body("<p>no provenance here</p>")
+    r = call("GET", STATE)
+    items = {item["id"]: item for item in json.loads(r.body)["operations"]}
+    first = items[provenance_op]
+    assert first["collection"] == "Android TV Ninja"
+    assert first["source"]["url"] == "https://docs.netflixpartners.com/ninja/documentation/overview"
+    assert first["source"]["label"] == "Overview"
+    assert "secret body" not in r.body.decode("utf-8")
+    assert "storage" not in json.dumps(first)
+    assert items[plain]["collection"] is None and items[plain]["source"] is None
+
+
+def test_location_confluence_error_is_502_and_leaves_the_queue_alone(call):
+    op = _pending(page_id="99")  # not in FakeClient, so the read fails
+    r = call("GET", f"/api/location?id={op}")
+    assert r.status == 502 and "error" in json.loads(r.body)
+    assert queue.get_op(op)["status"] == "pending"
+
+
+def test_malformed_source_url_does_not_break_queue_state(call):
+    op = _with_body(
+        '<blockquote><p>原文归档：Android TV Ninja\n'
+        '来源：<a href="http://[">Overview</a></p></blockquote>'
+    )
+    response = call("GET", STATE)
+    assert response.status == 200
+    [item] = json.loads(response.body)["operations"]
+    assert item["collection"] == "Android TV Ninja" and item["source"] is None
+    assert queue.get_op(op)["status"] == "pending"
