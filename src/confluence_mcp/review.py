@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import Any
 
-from . import queue
+from . import queue, web
 from .apply import approve_and_apply
 from .client import get_client
 from .writes import WRITE_FLAG, writes_enabled
@@ -78,6 +78,18 @@ def _approve(ids: list[str]) -> int:
     return 0
 
 
+def _web() -> int:
+    if not _interactive_stdin():
+        print("web needs an interactive terminal", file=sys.stderr)
+        return 2
+    if not writes_enabled():
+        print(f"web writes to Confluence; set {WRITE_FLAG}=true first", file=sys.stderr)
+        return 2
+    queue.recover_stale_executing()
+    web.serve(get_client())
+    return 0
+
+
 def _reject(ids: list[str]) -> int:
     for op_id in queue.reject(ids):
         print(f"rejected: {op_id}")
@@ -94,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     list_parser.add_argument("--all", action="store_true", help="include finished operations")
     approve_parser = subparsers.add_parser("approve", help="approve pending operations")
     approve_parser.add_argument("ids", nargs="*")
+    subparsers.add_parser("web", help="open the local approval page")
     reject_parser = subparsers.add_parser("reject", help="reject pending operations")
     reject_parser.add_argument("ids", nargs="+")
 
@@ -102,4 +115,6 @@ def main(argv: list[str] | None = None) -> int:
         return _approve(args.ids)
     if args.command == "reject":
         return _reject(args.ids)
+    if args.command == "web":
+        return _web()
     return _list(getattr(args, "all", False))

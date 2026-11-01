@@ -103,3 +103,25 @@ def test_list_hides_finished_unless_all(capsys):
     assert op not in capsys.readouterr().out
     review.main(["list", "--all"])
     assert op in capsys.readouterr().out
+
+
+def test_web_refuses_without_tty(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    assert review.main(["web"]) == 2
+    assert "interactive terminal" in capsys.readouterr().err
+
+
+def test_web_refuses_when_writes_disabled(monkeypatch, capsys):
+    monkeypatch.delenv("CONFLUENCE_ENABLE_WRITES", raising=False)
+    monkeypatch.setattr("sys.stdin", TTYInput(""))
+    assert review.main(["web"]) == 2
+    assert "CONFLUENCE_ENABLE_WRITES" in capsys.readouterr().err
+
+
+def test_web_sweeps_stale_ops_then_serves(monkeypatch, fake_client):
+    served = []
+    monkeypatch.setattr("sys.stdin", TTYInput(""))
+    monkeypatch.setattr(review.web, "serve", served.append)
+    monkeypatch.setattr(review.queue, "recover_stale_executing", lambda: served.append("swept"))
+    assert review.main(["web"]) == 0
+    assert served == ["swept", fake_client]
