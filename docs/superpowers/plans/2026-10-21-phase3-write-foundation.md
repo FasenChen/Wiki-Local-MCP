@@ -18,7 +18,7 @@
 - 所有写工具默认 `dry_run=True`，返回将要发生的变更；只有 `dry_run=False` 才真正请求 Confluence。
 - 不提供删除页面工具；不记录 PAT；审计日志不写页面正文。
 - 新依赖只允许 `markdown>=3.7,<4`。
-- 服务名改为 `confluence`，发行包名改为 `confluence-mcp`，版本 `0.3.0`；**包目录 `confluence_mcp`、keyring service `confluence-readonly-mcp` 保持不变**（改 keyring service 会让已保存的 PAT 失效）。
+- 服务名改为 `confluence`，MCP Host 注册别名统一使用 `wiki-local-mcp`；发行包名改为 `confluence-mcp`，版本 `0.3.0`；**包目录 `confluence_mcp`、keyring service `confluence-readonly-mcp` 保持不变**（改 keyring service 会让已保存的 PAT 失效）。
 - 不在代码里自动修改 `~/.claude.json` 或 `~/.codex/config.toml`；只在 README 给出新注册名。
 - 测试不访问真实 Confluence。
 
@@ -920,19 +920,19 @@ CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
 `%USERPROFILE%\.confluence-mcp\audit.log`（JSON Lines，不含页面正文和 PAT）。
 ```
 
-4. “注册到 Codex Desktop”一节的 `[mcp_servers.confluence_readonly]` 改为 `[mcp_servers.confluence]`，并提示 Claude Code 用户在 `~/.claude.json` 里同步改 key（只改 key，不改命令）。
+4. “注册到 Codex Desktop”一节使用 `[mcp_servers.wiki-local-mcp]` 及匹配的 `[mcp_servers.wiki-local-mcp.env]`，Claude Code 配置使用同名 key（只改 key，不改命令）。
 5. “官方接口依据”上方补一句：写工具需要 PAT 对应账号在目标 space 有编辑权限。
 
 - [ ] **Step 7: 同步本机 MCP 注册（手动，只改 key）**
 
-这一步不改代码，执行前先确认目标文件里存在旧 key：
+这一步不改代码，检查当前服务注册项是否使用 `wiki-local-mcp`：
 
 ```powershell
-Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern "confluence_readonly"
-Select-String -Path "$env:USERPROFILE\.claude.json" -Pattern "confluence_readonly"
+Select-String -LiteralPath "$env:USERPROFILE\.codex\config.toml" -SimpleMatch "wiki-local-mcp"
+Select-String -LiteralPath "$env:USERPROFILE\.claude.json" -SimpleMatch "wiki-local-mcp"
 ```
 
-把命中的段名 `[mcp_servers.confluence_readonly]`（Codex）或 JSON 里的 `"confluence_readonly"` 键（Claude Code）改成 `confluence`，命令、参数、cwd、env 全部保持原样。改完后重启 MCP host，确认工具列表里出现读工具；只有在 env 里设置了 `CONFLUENCE_ENABLE_WRITES=true` 时才应出现写工具。
+Codex 的服务段及其 env 子段、Claude Code 中对应服务的 JSON key 均使用 `wiki-local-mcp`；更名时保留命令、参数、cwd、env。改完后重启 MCP host，确认工具列表里出现读工具；只有在 env 里设置了 `CONFLUENCE_ENABLE_WRITES=true` 时才应出现写工具。
 
 - [ ] **Step 8: 提交**
 

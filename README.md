@@ -37,7 +37,7 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 在 PowerShell 中进入仓库目录并同步依赖：
 
 ```powershell
-Set-Location D:\Code\Wiki-Local-MCP
+Set-Location D:\AI\MCP\Wiki-Local-MCP
 uv sync
 ```
 
@@ -62,20 +62,20 @@ Codex Desktop、Codex CLI 与 IDE 扩展共用个人配置文件：
 先保留文件中的现有内容，再把下面配置追加到文件末尾；不要用此示例覆盖整个配置文件：
 
 ```toml
-[mcp_servers.confluence]
+[mcp_servers.wiki-local-mcp]
 command = "uv"
 args = ["run", "confluence-mcp"]
-cwd = "D:\\Code\\Wiki-Local-MCP"
+cwd = "D:\\AI\\MCP\\Wiki-Local-MCP"
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 
-[mcp_servers.confluence.env]
+[mcp_servers.wiki-local-mcp.env]
 ATLASSIAN_CONFLUENCE_URL = "https://wiki.example.com/confluence"
 ```
 
 将示例地址替换成你们 Confluence 的站点根地址，并包含部署使用的上下文路径（如有）；不要在地址后加 `/rest/api`。如果 Codex 找不到 `uv`，将 `command` 替换为 `uv.exe` 的绝对路径。
 
-服务名已从 `confluence_readonly` 改为 `confluence`。Claude Code 用户需要把 `~/.claude.json` 中对应条目的 key 同步改成 `confluence`（只改 key，命令、参数、cwd、env 保持不变）。
+MCP Host 的注册别名统一使用 `wiki-local-mcp`。Claude Code 用户在 `~/.claude.json` 中使用同名 key；已有配置更名时只改 key，保留命令、参数、cwd、env。
 
 也可以在 Codex Desktop 打开 **Settings → MCP Servers → Add Server**，选择 **STDIO**，配置命令、参数、工作目录和环境变量。保存后重启/刷新 MCP 服务器。CLI 可用 `codex mcp list` 查看登记状态。
 
