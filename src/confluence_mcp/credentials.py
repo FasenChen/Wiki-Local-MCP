@@ -4,7 +4,7 @@ from getpass import getpass
 
 import keyring
 
-KEYRING_SERVICE = "confluence-readonly-mcp"
+KEYRING_SERVICE = "confluence-mcp"
 KEYRING_USERNAME = "pat"
 
 

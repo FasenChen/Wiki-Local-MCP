@@ -18,7 +18,7 @@
 - 所有写工具默认 `dry_run=True`，返回将要发生的变更；只有 `dry_run=False` 才真正请求 Confluence。
 - 不提供删除页面工具；不记录 PAT；审计日志不写页面正文。
 - 新依赖只允许 `markdown>=3.7,<4`。
-- 服务名改为 `confluence`，MCP Host 注册别名统一使用 `wiki-local-mcp`；发行包名改为 `confluence-mcp`，版本 `0.3.0`；**包目录 `confluence_mcp`、keyring service `confluence-readonly-mcp` 保持不变**（改 keyring service 会让已保存的 PAT 失效）。
+- 服务名改为 `confluence`，MCP Host 注册别名统一使用 `wiki-local-mcp`；发行包名改为 `confluence-mcp`，版本 `0.3.0`；**包目录 `confluence_mcp` 保持不变，keyring service 统一为 `confluence-mcp`**；更名时先迁移已保存的 PAT。
 - 不在代码里自动修改 `~/.claude.json` 或 `~/.codex/config.toml`；只在 README 给出新注册名。
 - 测试不访问真实 Confluence。
 

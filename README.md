@@ -50,7 +50,7 @@ uv sync
 uv run confluence-mcp-store-pat
 ```
 
-同一 Windows 用户启动的 MCP 进程会从系统凭据库读取 PAT。也可使用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；它优先于凭据库。Basic Auth 可同时设置 `ATLASSIAN_CONFLUENCE_USERNAME` 和 `ATLASSIAN_CONFLUENCE_PASSWORD`。不要将 PAT 或密码写入 `config.toml`。
+同一 Windows 用户启动的 MCP 进程会从系统凭据库读取 PAT，服务名为 `confluence-mcp`，用户名为 `pat`。升级已有安装后，如原凭据保存在其他服务名下，需迁移凭据或重新运行上述命令保存 PAT。也可使用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；它优先于凭据库。Basic Auth 可同时设置 `ATLASSIAN_CONFLUENCE_USERNAME` 和 `ATLASSIAN_CONFLUENCE_PASSWORD`。不要将 PAT 或密码写入 `config.toml`。
 
 ### 3. 注册到 Codex Desktop
 
