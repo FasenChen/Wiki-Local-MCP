@@ -269,6 +269,25 @@ def make_server(
     return _Server((host, port), client, token)
 
 
+_live_lock = threading.Lock()
+_live: tuple[ThreadingHTTPServer, str] | None = None
+
+
+def review_url(client: Any) -> str:
+    """Start the approval page in this process once and return its URL, token included.
+
+    The token lives only in this process's memory and is reused for its lifetime.
+    """
+    global _live
+    with _live_lock:
+        if _live is None:
+            token = secrets.token_urlsafe(32)
+            server = make_server(client, token)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            _live = (server, f"http://127.0.0.1:{server.server_address[1]}/?token={token}")
+        return _live[1]
+
+
 def serve(client: Any) -> None:
     """Run the approval page until Ctrl+C."""
     token = secrets.token_urlsafe(32)

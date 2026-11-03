@@ -347,3 +347,25 @@ def test_malformed_source_url_does_not_break_queue_state(call):
     [item] = json.loads(response.body)["operations"]
     assert item["collection"] == "Android TV Ninja" and item["source"] is None
     assert queue.get_op(op)["status"] == "pending"
+
+
+
+def test_review_url_starts_once_and_serves_with_token(fake_client, monkeypatch):
+    monkeypatch.setattr(web, "_live", None)
+    url = web.review_url(fake_client)
+    try:
+        assert web.review_url(fake_client) == url
+        assert "/?token=" in url
+        http_url, token = url.split("/?token=")
+        port = int(http_url.rsplit(":", 1)[1])
+        conn = http.client.HTTPConnection("127.0.0.1", port)
+        conn.request("GET", f"/?token={token}", headers={"Host": f"127.0.0.1:{port}"})
+        resp = conn.getresponse()
+        assert resp.status == 302
+        assert "cmr_session=" in resp.getheader("Set-Cookie")
+        conn.close()
+    finally:
+        server, _ = web._live
+        server.shutdown()
+        server.server_close()
+        monkeypatch.setattr(web, "_live", None)
