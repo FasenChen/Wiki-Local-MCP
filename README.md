@@ -87,6 +87,14 @@ MCP Host 的注册别名统一使用 `wiki-local-mcp`。Claude Code 用户在 `~
 
 若公司使用内部 CA，将证书包路径设置到 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`；TLS 验证默认开启，不要关闭验证。服务不会自动读取 `.env` 文件。
 
+## 本地配置文件 `.env`（可选）
+
+MCP 启动时会读取仓库根目录的 `.env`（参考 `.env.example`）。进程环境变量优先，`.env` 不会覆盖已设置的值。
+
+- `CONFLUENCE_REVIEW_PORT`：审批页固定端口，`get_review_link` 返回 `http://127.0.0.1:<端口>/?token=...`。默认 `8765`。
+- 令牌每次启动生成，只保存在 MCP 进程内存中，**不要**写入 `.env`。
+- 文件不存在时静默跳过。可用 `CONFLUENCE_MCP_ENV_FILE` 指定其他路径。
+
 ## 启用写操作与人工审批（可选）
 
 默认情况下服务器不注册任何写工具。启用方式是在 MCP 配置的 `env` 中加入：
