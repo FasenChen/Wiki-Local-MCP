@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import threading
 import webbrowser
@@ -13,6 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import queue
 from .apply import approve_and_apply
+from .client import ConfluenceConfigurationError
 from .preview import provenance, proposed_storage, render_document
 from .web_page import PAGE
 
@@ -270,6 +272,24 @@ def make_server(
 
 
 _live_lock = threading.Lock()
+_DEFAULT_REVIEW_PORT = 8765
+
+
+def review_port() -> int:
+    raw = os.environ.get("CONFLUENCE_REVIEW_PORT", "").strip()
+    if not raw:
+        return _DEFAULT_REVIEW_PORT
+    try:
+        port = int(raw)
+    except ValueError:
+        port = 0
+    if not 1 <= port <= 65535:
+        raise ConfluenceConfigurationError(
+            "CONFLUENCE_REVIEW_PORT must be a port number from 1 to 65535."
+        )
+    return port
+
+
 _live: tuple[ThreadingHTTPServer, str] | None = None
 
 
@@ -282,7 +302,7 @@ def review_url(client: Any) -> str:
     with _live_lock:
         if _live is None:
             token = secrets.token_urlsafe(32)
-            server = make_server(client, token)
+            server = make_server(client, token, port=review_port())
             threading.Thread(target=server.serve_forever, daemon=True).start()
             _live = (server, f"http://127.0.0.1:{server.server_address[1]}/?token={token}")
         return _live[1]

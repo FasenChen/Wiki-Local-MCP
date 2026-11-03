@@ -352,6 +352,7 @@ def test_malformed_source_url_does_not_break_queue_state(call):
 
 def test_review_url_starts_once_and_serves_with_token(fake_client, monkeypatch):
     monkeypatch.setattr(web, "_live", None)
+    monkeypatch.setenv("CONFLUENCE_REVIEW_PORT", str(_pick_free_port()))
     url = web.review_url(fake_client)
     try:
         assert web.review_url(fake_client) == url
@@ -369,3 +370,51 @@ def test_review_url_starts_once_and_serves_with_token(fake_client, monkeypatch):
         server.shutdown()
         server.server_close()
         monkeypatch.setattr(web, "_live", None)
+
+
+import socket as _socket
+
+from confluence_mcp.client import ConfluenceConfigurationError
+
+
+def _pick_free_port():
+    with _socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def test_review_port_defaults_to_8765(monkeypatch):
+    monkeypatch.delenv("CONFLUENCE_REVIEW_PORT", raising=False)
+    assert web.review_port() == 8765
+
+
+@pytest.mark.parametrize("value", ["abc", "0", "70000"])
+def test_review_port_rejects_invalid_values(monkeypatch, value):
+    monkeypatch.setenv("CONFLUENCE_REVIEW_PORT", value)
+    with pytest.raises(ConfluenceConfigurationError):
+        web.review_port()
+
+
+def test_review_url_binds_configured_port(fake_client, monkeypatch):
+    monkeypatch.setattr(web, "_live", None)
+    free = _pick_free_port()
+    monkeypatch.setenv("CONFLUENCE_REVIEW_PORT", str(free))
+    url = web.review_url(fake_client)
+    try:
+        assert url.startswith(f"http://127.0.0.1:{free}/?token=")
+    finally:
+        server, _ = web._live
+        server.shutdown()
+        server.server_close()
+        monkeypatch.setattr(web, "_live", None)
+
+
+def test_review_url_port_in_use_raises_and_leaves_no_state(fake_client, monkeypatch):
+    monkeypatch.setattr(web, "_live", None)
+    with _socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        monkeypatch.setenv("CONFLUENCE_REVIEW_PORT", str(busy.getsockname()[1]))
+        with pytest.raises(OSError):
+            web.review_url(fake_client)
+    assert web._live is None
