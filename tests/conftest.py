@@ -8,6 +8,13 @@ def _isolated_queue(monkeypatch, tmp_path):
     monkeypatch.setattr(queue, "QUEUE_PATH", tmp_path / "queue.sqlite3")
 
 
+@pytest.fixture(autouse=True)
+def _no_repo_env_file(monkeypatch, tmp_path):
+    from confluence_mcp import settings_file
+
+    monkeypatch.setenv(settings_file.ENV_FILE_VAR, str(tmp_path / "none.env"))
+
+
 class FakeClient:
     def __init__(self):
         self.pages = {}
