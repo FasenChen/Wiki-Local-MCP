@@ -1,4 +1,10 @@
+import os
+import tempfile
+
 import pytest
+
+# Must run before any confluence_mcp import: importing the package loads the repo .env.
+os.environ["CONFLUENCE_MCP_ENV_FILE"] = os.path.join(tempfile.gettempdir(), "confluence-mcp-no-env-file")
 
 
 @pytest.fixture(autouse=True)
@@ -6,13 +12,6 @@ def _isolated_queue(monkeypatch, tmp_path):
     from confluence_mcp import queue
 
     monkeypatch.setattr(queue, "QUEUE_PATH", tmp_path / "queue.sqlite3")
-
-
-@pytest.fixture(autouse=True)
-def _no_repo_env_file(monkeypatch, tmp_path):
-    from confluence_mcp import settings_file
-
-    monkeypatch.setenv(settings_file.ENV_FILE_VAR, str(tmp_path / "none.env"))
 
 
 class FakeClient:

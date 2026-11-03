@@ -85,7 +85,7 @@ MCP Host 的注册别名统一使用 `wiki-local-mcp`。Claude Code 用户在 `~
 
 在 Codex 的 MCP 工具列表中确认出现 `search_pages`、`get_page` 和 `get_page_by_title`。调用 `search_pages` 搜索一个有权限查看的词，或调用 `get_page` 读取 Page ID。MCP 运行机器必须能通过公司网络/VPN 访问 Confluence。
 
-若公司使用内部 CA，将证书包路径设置到 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`；TLS 验证默认开启，不要关闭验证。服务不会自动读取 `.env` 文件。
+若公司使用内部 CA，将证书包路径设置到 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`；TLS 验证默认开启，不要关闭验证。
 
 ## 本地配置文件 `.env`（可选）
 
@@ -183,7 +183,7 @@ MCP 不会绕过 Confluence 权限；结果只包含 PAT 所属用户能读取�
 - TLS/连接错误：检查 VPN、DNS、代理与 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`。
 - 重定向错误：确认 `ATLASSIAN_CONFLUENCE_URL` 指向实际 Confluence 根地址，而非登录页、反向代理跳转地址或 `/rest/api`。
 
-服务不会自动读取 `.env` 文件。不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；优先使用系统凭据库。
+服务启动时会读取仓库根目录的 `.env`（见下文“本地配置文件”），但不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；优先使用系统凭据库。
 
 ## 开发
 

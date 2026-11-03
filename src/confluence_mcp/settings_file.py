@@ -32,7 +32,7 @@ def load_env_file(path: Path) -> list[str]:
     if not path.is_file():
         return []
     loaded = []
-    for key, value in parse_env(path.read_text(encoding="utf-8")).items():
+    for key, value in parse_env(path.read_text(encoding="utf-8-sig")).items():
         if key not in os.environ:
             os.environ[key] = value
             loaded.append(key)

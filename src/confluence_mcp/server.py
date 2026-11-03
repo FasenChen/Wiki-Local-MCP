@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from . import queue, web
 from .client import (
     ConfluenceAPIError,
+    ConfluenceConfigurationError,
     get_client,
     quote_cql,
 )
@@ -891,7 +892,13 @@ def get_review_link() -> dict[str, Any]:
 
     Starts the approval page in this MCP process on first call; later calls return the same URL.
     """
-    url = web.review_url(get_client())
+    try:
+        url = web.review_url(get_client())
+    except OSError as exc:
+        raise ConfluenceConfigurationError(
+            f"审批页端口 {web.review_port()} 无法使用（{exc.strerror or exc}）。"
+            "请在 .env 中设置 CONFLUENCE_REVIEW_PORT 为可用端口。"
+        ) from exc
     return {"url": url, "pending": len(queue.list_ops(("pending",)))}
 
 

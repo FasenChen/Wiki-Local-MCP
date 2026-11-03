@@ -36,3 +36,18 @@ def test_loads_keys_but_never_overrides_process_env(tmp_path, monkeypatch):
     assert os.environ["CONFLUENCE_WRITE_SPACES"] == "OPS"
     assert loaded == ["CONFLUENCE_WRITE_SPACES"]
     monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+
+
+def test_utf8_bom_does_not_corrupt_first_key(tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    path.write_bytes("\ufeffCONFLUENCE_REVIEW_PORT=9001\n".encode("utf-8"))
+    monkeypatch.delenv("CONFLUENCE_REVIEW_PORT", raising=False)
+    assert settings_file.load_env_file(path) == ["CONFLUENCE_REVIEW_PORT"]
+    assert os.environ["CONFLUENCE_REVIEW_PORT"] == "9001"
+    monkeypatch.delenv("CONFLUENCE_REVIEW_PORT", raising=False)
+
+
+def test_test_session_never_reads_repo_env_file():
+    from pathlib import Path
+
+    assert not Path(os.environ[settings_file.ENV_FILE_VAR]).exists()

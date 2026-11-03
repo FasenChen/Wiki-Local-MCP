@@ -418,3 +418,18 @@ def test_review_url_port_in_use_raises_and_leaves_no_state(fake_client, monkeypa
         with pytest.raises(OSError):
             web.review_url(fake_client)
     assert web._live is None
+
+
+def test_get_review_link_port_in_use_is_readable(monkeypatch):
+    from confluence_mcp import server
+
+    monkeypatch.setattr(web, "_live", None)
+
+    def busy(client):
+        raise OSError(98, "address already in use")
+
+    monkeypatch.setattr(web, "review_url", busy)
+    monkeypatch.setattr(server, "get_client", lambda: None)
+    monkeypatch.setenv("CONFLUENCE_REVIEW_PORT", "8790")
+    with pytest.raises(ConfluenceConfigurationError, match="CONFLUENCE_REVIEW_PORT"):
+        server.get_review_link()
