@@ -34,6 +34,24 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 
 ## 安装和认证
 
+### 0. 用提示词安装（推荐）
+
+把下面整段提示词交给 Claude Code / Codex，让代理完成克隆、安装和注册。PAT 的输入由你本人在隐藏提示中完成。
+
+```text
+请帮我在本机安装并注册 Confluence MCP（仓库：https://github.com/FasenChen/Wiki-Local-MCP）。
+
+1. 克隆仓库到 D:\AI\MCP\Wiki-Local-MCP（Windows；已存在则跳过克隆），安装 uv 后在该目录执行 `uv sync`。
+2. 让我本人运行 `uv run confluence-mcp-store-pat`，在隐藏输入提示里粘贴 Confluence PAT。不要让我把 PAT 发到对话里，也不要把 PAT 写进任何配置文件或仓库文件。
+3. 在 MCP Host 配置里注册服务器，别名为 `wiki-local-mcp`：
+   - Codex：在 %USERPROFILE%\.codex\config.toml 追加 [mcp_servers.wiki-local-mcp]（command = "uv"，args = ["run", "confluence-mcp"]，cwd = "<仓库路径>"，env.ATLASSIAN_CONFLUENCE_URL = "<Confluence 根地址，如 https://wiki.example.com/confluence>"）。
+   - Claude Code：在 ~/.claude.json 的 mcpServers 下使用同样的 key、命令、参数、cwd 和 env。
+   保留已有配置，不要覆盖整个文件。
+4. 重启/刷新 MCP 服务器，确认工具列表出现 search_pages、get_page、get_page_by_title，并调用 search_pages 搜索一个我有权限查看的词。
+5. 如果连接时出现 TLS/证书错误，提示我设置 ATLASSIAN_CONFLUENCE_CA_BUNDLE 指向公司 CA 证书；不要关闭 TLS 验证。
+6. 改动前先备份 MCP 配置文件；完成后告诉我改了哪个文件、加了哪些内容。
+```
+
 ### 1. 安装依赖
 
 在 PowerShell 中进入仓库目录并同步依赖：
