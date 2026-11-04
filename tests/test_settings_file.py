@@ -28,11 +28,11 @@ def test_missing_file_is_a_no_op(tmp_path):
 
 def test_loads_keys_but_never_overrides_process_env(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    path.write_text("CONFLUENCE_REVIEW_PORT=9000\nCONFLUENCE_WRITE_SPACES=OPS\n", encoding="utf-8")
-    monkeypatch.setenv("CONFLUENCE_REVIEW_PORT", "8000")
+    path.write_text("ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com\nCONFLUENCE_WRITE_SPACES=OPS\n", encoding="utf-8")
+    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://other.example.com")
     monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
     loaded = settings_file.load_env_file(path)
-    assert os.environ["CONFLUENCE_REVIEW_PORT"] == "8000"
+    assert os.environ["ATLASSIAN_CONFLUENCE_URL"] == "https://other.example.com"
     assert os.environ["CONFLUENCE_WRITE_SPACES"] == "OPS"
     assert loaded == ["CONFLUENCE_WRITE_SPACES"]
     monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
@@ -40,11 +40,11 @@ def test_loads_keys_but_never_overrides_process_env(tmp_path, monkeypatch):
 
 def test_utf8_bom_does_not_corrupt_first_key(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    path.write_bytes("\ufeffCONFLUENCE_REVIEW_PORT=9001\n".encode("utf-8"))
-    monkeypatch.delenv("CONFLUENCE_REVIEW_PORT", raising=False)
-    assert settings_file.load_env_file(path) == ["CONFLUENCE_REVIEW_PORT"]
-    assert os.environ["CONFLUENCE_REVIEW_PORT"] == "9001"
-    monkeypatch.delenv("CONFLUENCE_REVIEW_PORT", raising=False)
+    path.write_bytes("\ufeffATLASSIAN_CONFLUENCE_URL=https://bom.example.com\n".encode("utf-8"))
+    monkeypatch.delenv("ATLASSIAN_CONFLUENCE_URL", raising=False)
+    assert settings_file.load_env_file(path) == ["ATLASSIAN_CONFLUENCE_URL"]
+    assert os.environ["ATLASSIAN_CONFLUENCE_URL"] == "https://bom.example.com"
+    monkeypatch.delenv("ATLASSIAN_CONFLUENCE_URL", raising=False)
 
 
 def test_test_session_never_reads_repo_env_file():

@@ -51,7 +51,7 @@ uv sync
 uv run confluence-mcp-store-pat
 ```
 
-同一 Windows 用户启动的 MCP 进程会从系统凭据库读取 PAT，服务名为 `confluence-mcp`，用户名为 `pat`。升级已有安装后，如原凭据保存在其他服务名下，需迁移凭据或重新运行上述命令保存 PAT。也可使用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；它优先于凭据库。Basic Auth 可同时设置 `ATLASSIAN_CONFLUENCE_USERNAME` 和 `ATLASSIAN_CONFLUENCE_PASSWORD`。不要将 PAT 或密码写入 `config.toml`。
+同一 Windows 用户启动的 MCP 进程会从系统凭据库读取 PAT，服务名为 `confluence-mcp`，用户名为 `pat`。升级已有安装后，如原凭据保存在其他服务名下，需迁移凭据或重新运行上述命令保存 PAT。也可使用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；它优先于凭据库。不要将 PAT 或密码写入 `config.toml`。
 
 ### 3. 注册到 Codex Desktop
 
@@ -91,8 +91,6 @@ MCP Host 的注册别名统一使用 `wiki-local-mcp`。Claude Code 用户在 `~
 
 MCP 启动时会读取仓库根目录的 `.env`（参考 `.env.example`）。进程环境变量优先，`.env` 不会覆盖已设置的值。
 
-- `CONFLUENCE_REVIEW_PORT`：审批页固定端口，`get_review_link` 返回 `http://127.0.0.1:<端口>/?token=...`。默认 `8765`。
-- 令牌每次启动生成，只保存在 MCP 进程内存中，**不要**写入 `.env`。
 - 文件不存在时静默跳过。可用 `CONFLUENCE_MCP_ENV_FILE` 指定其他路径。
 
 ## 启用写操作与人工审批（可选）
@@ -177,7 +175,7 @@ CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
 
 MCP 不会绕过 Confluence 权限；结果只包含 PAT 所属用户能读取的内容。对内网 Confluence 的请求由启动 MCP 的机器发出，因此 Codex 必须运行在能访问公司网络/VPN 的本地环境。把服务器改为远端运行时，远端也必须能访问该内网地址。
 
-- `401`：检查 PAT 是否有效/过期，或 Basic Auth 是否完整。
+- `401`：检查 PAT 是否有效/过期。
 - `403`：检查账号对 Space 和页面限制是否有读取权限；写操作还需检查 `CONFLUENCE_WRITE_SPACES` 与 Space 的编辑限制。
 - `404`：检查 Page ID 与根地址上下文路径；无权查看的页面也可能表现为不可用。
 - TLS/连接错误：检查 VPN、DNS、代理与 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`。

@@ -7,10 +7,9 @@ from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
-from . import queue, web
+from . import queue
 from .client import (
     ConfluenceAPIError,
-    ConfluenceConfigurationError,
     get_client,
     quote_cql,
 )
@@ -887,21 +886,6 @@ def get_execution_log(page: int = 1, page_size: int = 50) -> dict[str, Any]:
     return _paged(finished, _QUEUE_FIELDS + ("result", "error", "updated_at"), page, page_size)
 
 
-def get_review_link() -> dict[str, Any]:
-    """Return the approval page URL, token included, so the person can open it and approve.
-
-    Starts the approval page in this MCP process on first call; later calls return the same URL.
-    """
-    try:
-        url = web.review_url(get_client())
-    except OSError as exc:
-        raise ConfluenceConfigurationError(
-            f"审批页端口 {web.review_port()} 无法使用（{exc.strerror or exc}）。"
-            "请在 .env 中设置 CONFLUENCE_REVIEW_PORT 为可用端口。"
-        ) from exc
-    return {"url": url, "pending": len(queue.list_ops(("pending",)))}
-
-
 def register_write_tools(server: FastMCP) -> None:
     for tool in (
         create_page,
@@ -913,7 +897,6 @@ def register_write_tools(server: FastMCP) -> None:
         get_queued_operations,
         cancel_queued_operations,
         get_execution_log,
-        get_review_link,
     ):
         server.tool()(tool)
 

@@ -34,9 +34,7 @@ class ConfluenceAPIError(RuntimeError):
 @dataclass(frozen=True)
 class ConfluenceSettings:
     base_url: str
-    pat: str | None
-    username: str | None
-    password: str | None
+    pat: str
     ca_bundle: str | None
 
     @classmethod
@@ -60,9 +58,7 @@ class ConfluenceSettings:
         normalized_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
         pat = os.environ.get("ATLASSIAN_CONFLUENCE_PAT", "").strip() or None
-        username = os.environ.get("ATLASSIAN_CONFLUENCE_USERNAME", "").strip() or None
-        password = os.environ.get("ATLASSIAN_CONFLUENCE_PASSWORD", "") or None
-        if pat is None and not (username and password):
+        if pat is None:
             try:
                 pat = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
             except Exception as exc:
@@ -71,35 +67,25 @@ class ConfluenceSettings:
                     "ATLASSIAN_CONFLUENCE_PAT or save a PAT with "
                     "`uv run confluence-mcp-store-pat`."
                 ) from exc
-
-        if pat is None and not (username and password):
+        if not pat:
             raise ConfluenceConfigurationError(
-                "No Confluence credentials found. Save a PAT with "
-                "`uv run confluence-mcp-store-pat`, set ATLASSIAN_CONFLUENCE_PAT, "
-                "or set both ATLASSIAN_CONFLUENCE_USERNAME and "
-                "ATLASSIAN_CONFLUENCE_PASSWORD."
+                "No Confluence PAT found. Save one with `uv run confluence-mcp-store-pat`, "
+                "or set ATLASSIAN_CONFLUENCE_PAT."
             )
 
         ca_bundle = os.environ.get("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "").strip() or None
-        return cls(normalized_url, pat, username, password, ca_bundle)
+        return cls(normalized_url, pat, ca_bundle)
 
 
 class ConfluenceClient:
     """A wrapper around Confluence REST API v1."""
 
     def __init__(self, settings: ConfluenceSettings) -> None:
-        headers = {"Accept": "application/json"}
-        auth: tuple[str, str] | None = None
-        if settings.pat:
-            headers["Authorization"] = f"Bearer {settings.pat}"
-        else:
-            assert settings.username is not None and settings.password is not None
-            auth = (settings.username, settings.password)
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {settings.pat}"}
 
         self._client = httpx.Client(
             base_url=f"{settings.base_url}/rest/api/",
             headers=headers,
-            auth=auth,
             verify=settings.ca_bundle or True,
             timeout=httpx.Timeout(30.0, connect=10.0),
             follow_redirects=False,
