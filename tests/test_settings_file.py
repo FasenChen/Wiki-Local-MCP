@@ -51,3 +51,19 @@ def test_test_session_never_reads_repo_env_file():
     from pathlib import Path
 
     assert not Path(os.environ[settings_file.ENV_FILE_VAR]).exists()
+
+
+def test_strips_trailing_comment_after_whitespace():
+    text = "A=hello # comment\nKEY= # only a comment\n"
+    assert parse_env(text) == {"A": "hello", "KEY": ""}
+
+
+def test_hash_inside_quotes_is_kept():
+    text = 'B="value # not comment"\nC=\'x\' # note\n'
+    assert parse_env(text) == {"B": "value # not comment", "C": "x"}
+
+
+def test_hash_without_leading_space_is_part_of_value():
+    assert parse_env("URL=https://wiki.example.com/x#top\n") == {
+        "URL": "https://wiki.example.com/x#top"
+    }

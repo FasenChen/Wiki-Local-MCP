@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 ENV_FILE_VAR = "CONFLUENCE_MCP_ENV_FILE"
 DEFAULT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+_COMMENT = re.compile(r"(?:^|\s)#")
+
+
+def _value(raw: str) -> str:
+    value = raw.strip()
+    if value[:1] in {'"', "'"}:
+        end = value.find(value[0], 1)
+        if end != -1:
+            return value[1:end]
+    # shortcut: "#" starts a comment only after whitespace, so URL fragments survive unquoted.
+    match = _COMMENT.search(value)
+    return (value[: match.start()] if match else value).strip()
 
 
 def parse_env(text: str) -> dict[str, str]:
@@ -21,10 +34,7 @@ def parse_env(text: str) -> dict[str, str]:
         key = key.strip()
         if not sep or not key:
             raise ValueError(f"line {number}: expected KEY=VALUE")
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            value = value[1:-1]
-        values[key] = value
+        values[key] = _value(value)
     return values
 
 
