@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 ENV_FILE_VAR = "CONFLUENCE_MCP_ENV_FILE"
-DEFAULT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+DEFAULT_ENV_FILE = Path.cwd() / ".env"
 _COMMENT = re.compile(r"(?:^|\s)#")
 
 

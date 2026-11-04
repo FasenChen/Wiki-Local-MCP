@@ -67,3 +67,9 @@ def test_hash_without_leading_space_is_part_of_value():
     assert parse_env("URL=https://wiki.example.com/x#top\n") == {
         "URL": "https://wiki.example.com/x#top"
     }
+
+
+def test_default_env_file_is_in_working_directory():
+    from pathlib import Path
+
+    assert settings_file.DEFAULT_ENV_FILE == Path.cwd() / ".env"
