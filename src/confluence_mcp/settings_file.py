@@ -9,6 +9,7 @@ from pathlib import Path
 ENV_FILE_VAR = "CONFLUENCE_MCP_ENV_FILE"
 DEFAULT_ENV_FILE = Path.cwd() / ".env"
 _COMMENT = re.compile(r"(?:^|\s)#")
+_SECRET_KEYS = {"ATLASSIAN_CONFLUENCE_PAT"}
 
 
 def _value(raw: str) -> str:
@@ -43,7 +44,9 @@ def load_env_file(path: Path) -> list[str]:
         return []
     loaded = []
     for key, value in parse_env(path.read_text(encoding="utf-8-sig")).items():
-        if key not in os.environ:
-            os.environ[key] = value
-            loaded.append(key)
+        # The PAT comes only from the process environment or the OS credential store.
+        if key in _SECRET_KEYS or key in os.environ:
+            continue
+        os.environ[key] = value
+        loaded.append(key)
     return loaded

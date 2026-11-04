@@ -73,3 +73,17 @@ def test_default_env_file_is_in_working_directory():
     from pathlib import Path
 
     assert settings_file.DEFAULT_ENV_FILE == Path.cwd() / ".env"
+
+
+def test_pat_in_env_file_is_never_loaded(tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    path.write_text(
+        "ATLASSIAN_CONFLUENCE_PAT=secret-token-123\nCONFLUENCE_WRITE_SPACES=OPS\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_PAT", "")
+    monkeypatch.delenv("ATLASSIAN_CONFLUENCE_PAT")
+    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "")
+    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES")
+    loaded = settings_file.load_env_file(path)
+    assert loaded == ["CONFLUENCE_WRITE_SPACES"]
+    assert "ATLASSIAN_CONFLUENCE_PAT" not in os.environ
