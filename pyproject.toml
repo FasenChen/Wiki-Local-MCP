@@ -17,7 +17,7 @@ dependencies = [
     "mcp>=1.26,<2",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = ["pytest>=8,<9"]
 
 [project.scripts]

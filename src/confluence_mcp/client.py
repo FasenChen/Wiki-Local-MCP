@@ -65,11 +65,12 @@ class ConfluenceSettings:
                 raise ConfluenceConfigurationError(
                     "Could not read the operating-system credential store. Set "
                     "ATLASSIAN_CONFLUENCE_PAT or save a PAT with "
-                    "`uv run confluence-mcp-store-pat`."
+                    "`confluence-mcp-store-pat` from the project's virtual environment."
                 ) from exc
         if not pat:
             raise ConfluenceConfigurationError(
-                "No Confluence PAT found. Save one with `uv run confluence-mcp-store-pat`, "
+                "No Confluence PAT found. Save one with `confluence-mcp-store-pat` "
+                "from the project's virtual environment, "
                 "or set ATLASSIAN_CONFLUENCE_PAT."
             )
 

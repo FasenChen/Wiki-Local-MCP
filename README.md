@@ -25,8 +25,7 @@
 ## 运行环境
 
 - Windows、macOS 或 Linux
-- Python 3.10 或更高版本
-- [`uv`](https://docs.astral.sh/uv/)
+- Python 3.10 或更高版本，使用标准库 `venv` 创建项目虚拟环境
 - MCP Host 与 Confluence 之间可达的网络/VPN 路由
 - Confluence Data Center PAT，且该账号有目标 Space/Page 的读取权限；使用写工具时还需要目标 Space 的编辑权限
 
@@ -34,31 +33,50 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 
 ## 安装和认证
 
-### 1. 前置条件
+### 1. 创建虚拟环境并安装
 
-- [uv](https://docs.astral.sh/uv/)（会自行安装 Python）
-- Confluence Data Center PAT，且账号对目标 Space/Page 有读取权限
+先安装 Python 3.10 或更高版本，并准备具有目标 Space/Page 读取权限的 Confluence Data Center PAT。
+以下 Windows PowerShell 示例假设仓库位于 `D:\Code\Wiki-Local-MCP`，请替换为实际路径：
+
+```powershell
+Set-Location D:\Code\Wiki-Local-MCP
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -c constraints.txt -e .
+```
+
+`pyproject.toml` 声明依赖范围，`constraints.txt` 固定安装版本；已有 `.venv` 时直接运行安装命令。
+后续命令直接使用虚拟环境中的 Python 或可执行文件，无需激活环境，也无需修改 PowerShell 执行策略。
+
+macOS/Linux 使用：
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -c constraints.txt -e .
+```
+
+后续示例中的 `.venv\Scripts\python.exe` 对应 `.venv/bin/python`；其他 `.exe` 命令对应 `.venv/bin/` 下的同名命令（不带 `.exe`）。
 
 ### 2. 保存 PAT
 
 ```powershell
-uv run --directory D:\AI\MCP\Wiki-Local-MCP confluence-mcp-store-pat
+.\.venv\Scripts\confluence-mcp-store-pat.exe
 ```
 
 在隐藏输入提示中粘贴 PAT，保存到系统凭据库。也可用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；`.env` 不读取 PAT。
 
 ### 3. 注册 MCP 客户端
 
-所有 stdio 客户端使用同一条启动命令。`--directory` 会切到仓库目录，因此 `.env` 和 `uv` 环境都能找到：
+所有 stdio 客户端直接使用项目虚拟环境中的 Python：
 
 ```text
-uv run --directory <仓库绝对路径> confluence-mcp
+D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
 ```
 
-唯一需要配置的环境变量：
+客户端设置以下环境变量；`.env` 使用绝对路径，因此客户端无需切换工作目录：
 
 ```text
 ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence
+CONFLUENCE_MCP_ENV_FILE=D:\Code\Wiki-Local-MCP\.env
 ```
 
 地址要带上下文路径（如有），不要加 `/rest/api`。
@@ -66,7 +84,7 @@ ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence
 #### Claude Code
 
 ```powershell
-claude mcp add wiki-local-mcp -e ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence -- uv run --directory D:\AI\MCP\Wiki-Local-MCP confluence-mcp
+claude mcp add wiki-local-mcp -e ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence -e CONFLUENCE_MCP_ENV_FILE=D:\Code\Wiki-Local-MCP\.env -- D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
 ```
 
 默认写入当前项目；加 `--scope user` 对所有项目生效。用 `claude mcp list` 检查。
@@ -74,20 +92,21 @@ claude mcp add wiki-local-mcp -e ATLASSIAN_CONFLUENCE_URL=https://wiki.example.c
 #### Codex
 
 ```powershell
-codex mcp add wiki-local-mcp --env ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence -- uv run --directory D:\AI\MCP\Wiki-Local-MCP confluence-mcp
+codex mcp add wiki-local-mcp --env ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence --env CONFLUENCE_MCP_ENV_FILE=D:\Code\Wiki-Local-MCP\.env -- D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
 ```
 
 也可手写 `%USERPROFILE%\.codex\config.toml`：
 
 ```toml
 [mcp_servers.wiki-local-mcp]
-command = "uv"
-args = ["run", "--directory", "D:\\AI\\MCP\\Wiki-Local-MCP", "confluence-mcp"]
+command = "D:\\Code\\Wiki-Local-MCP\\.venv\\Scripts\\python.exe"
+args = ["-m", "confluence_mcp.server"]
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 
 [mcp_servers.wiki-local-mcp.env]
 ATLASSIAN_CONFLUENCE_URL = "https://wiki.example.com/confluence"
+CONFLUENCE_MCP_ENV_FILE = "D:\\Code\\Wiki-Local-MCP\\.env"
 ```
 
 保留文件已有内容，不要覆盖整个文件。
@@ -99,10 +118,11 @@ ATLASSIAN_CONFLUENCE_URL = "https://wiki.example.com/confluence"
   "mcpServers": {
     "wiki-local-mcp": {
       "type": "stdio",
-      "command": "uv",
-      "args": ["run", "--directory", "D:\\AI\\MCP\\Wiki-Local-MCP", "confluence-mcp"],
+      "command": "D:\\Code\\Wiki-Local-MCP\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "confluence_mcp.server"],
       "env": {
-        "ATLASSIAN_CONFLUENCE_URL": "https://wiki.example.com/confluence"
+        "ATLASSIAN_CONFLUENCE_URL": "https://wiki.example.com/confluence",
+        "CONFLUENCE_MCP_ENV_FILE": "D:\\Code\\Wiki-Local-MCP\\.env"
       }
     }
   }
@@ -121,10 +141,11 @@ DSH 把每个服务器配置成 `@deepseek-ai/dsh-mcp-client` 插件实例，写
   config:
     serverName: wiki-local-mcp
     transport: stdio
-    command: uv
-    args: ['run', '--directory', 'D:\AI\MCP\Wiki-Local-MCP', 'confluence-mcp']
+    command: 'D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe'
+    args: ['-m', 'confluence_mcp.server']
     env:
       ATLASSIAN_CONFLUENCE_URL: https://wiki.example.com/confluence
+      CONFLUENCE_MCP_ENV_FILE: 'D:\Code\Wiki-Local-MCP\.env'
 ```
 
 `serverName` 只能包含字母、数字、`_`、`-`，工具显示为 `mcp__wiki-local-mcp__<工具名>`。
@@ -147,13 +168,13 @@ DSH 把每个服务器配置成 `@deepseek-ai/dsh-mcp-client` 插件实例，写
 按 https://github.com/FasenChen/Wiki-Local-MCP 的 README 安装并注册 Confluence MCP。
 
 先问我：MCP 客户端、仓库绝对路径、Confluence 根地址。
-然后：确认 uv → 克隆仓库并 `uv sync` → 把 `uv run --directory <仓库> confluence-mcp-store-pat` 给我自己运行 → 按 README 第 3 节对应客户端注册（别名 wiki-local-mcp）→ 重启并调用 search_pages 验证。
+然后：确认 Python 3.10+ → 克隆仓库并用 `python -m venv .venv` 创建环境 → 用该环境的 Python 执行 `-m pip install -c constraints.txt -e .` → 把虚拟环境中的 `confluence-mcp-store-pat` 命令给我自己运行 → 按 README 第 3 节对应客户端注册（别名 wiki-local-mcp），设置 `.env` 的绝对路径 → 重启并调用 search_pages 验证。
 不要读取或让我粘贴 PAT；改配置前先备份，完成后说明改了哪个文件、如何回滚。
 ```
 
 ## 本地配置文件 `.env`（可选）
 
-MCP 启动时会读取工作目录（MCP 配置里的 `cwd`，应指向仓库根目录）下的 `.env`（参考 `.env.example`）。进程环境变量优先，`.env` 不会覆盖已设置的值。`.env` 不读取 PAT，PAT 只能来自系统凭据库或进程环境变量。
+MCP 启动时优先读取 `CONFLUENCE_MCP_ENV_FILE` 指定的文件；未设置时读取当前工作目录下的 `.env`（参考 `.env.example`）。客户端按上面的示例设置绝对路径，即可从任意工作目录启动。进程环境变量优先，`.env` 不会覆盖已设置的值。`.env` 不读取 PAT，PAT 只能来自系统凭据库或进程环境变量。
 
 - 文件不存在时静默跳过。行尾注释需要 `#` 前有空格，例如 `CONFLUENCE_WRITE_SPACES=OPS # 已批准`。
 
@@ -174,7 +195,7 @@ CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
 
 1. 写工具 `dry_run=false` → 入队，返回 `operation_id` 和 `pending` 状态。
 2. 在你自己的终端里审批（需要真实的交互式控制台，Agent 无法替你启动），二选一：
-   - 网页：`uv run confluence-mcp-review web`。在本机 `127.0.0.1` 打开审批页。
+   - 网页：在仓库根目录运行 `.\.venv\Scripts\confluence-mcp-review.exe web`。在本机 `127.0.0.1` 打开审批页。
      - 左侧队列：卡片标题是页面标题（章节更新显示章节名），标签显示动作、空间和状态，并列出操作 ID。用 Tab 聚焦后按 Enter/空格选中。
      - 左右分栏默认约 3:7。拖动中间的分隔条；也可以用头部的“收窄队列 / 加宽队列 / 恢复默认”按钮（每次 5%）；聚焦分隔条后用左右方向键（每次 2%），Home/End 为最小/最大。可调范围受最小宽度限制（队列 260px，详情 380px），分隔条的 ARIA 数值与之一致。窄窗口（≤760px）改为上下排列，队列较矮，详情区独立滚动。偏好保存在 `cmr_split` 这个普通偏好 Cookie 中（仅本机 host，非 HttpOnly，值经过校验），因此重启 `web`（端口变化）后仍保留。审批会话 Cookie 不被读取或修改。
      - 来源：如果正文开头的引用块（`> 原文归档：…`、`> 来源：[名称](URL)`）里有这两个明确标签，队列卡片显示归档标签，右侧标出原文 URL 和上级目录，并与 Wiki 目标位置分开。只识别这种开头的标签行，正文中的其他链接一律不当作来源；无效或带凭据的 URL 不显示。队列中没有单独的来源字段。
@@ -182,10 +203,10 @@ CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
      - 正文三个标签：“预览”（默认）是即将写入的正文，“源码”是提交给 Confluence 的 storage XHTML，“改动记录”是入队时保存的 diff（更新）或 Markdown 原文（新建/评论）。
      - 预览的限制：它是本地近似渲染，只还原标题、段落、列表、表格、`code` 宏和外部图片（`ac:image` 的 `ac:alt` 会保留）。其他宏、附件、样式、布局和权限以 Confluence 页面为准，未还原的宏会在预览中标出。预览旁边常驻一行“本地近似预览”提示，展开可看完整说明。预览在隔离的沙箱中显示，不执行脚本、不能访问审批接口。正文里的链接显示为文字和地址，不可点击。
      - 右侧的“批准”会立即写入 Confluence，“全部批准”会先确认条数。会话失效或写入进行中时，所有写入按钮都会禁用。
-   - 终端：`uv run confluence-mcp-review approve <id>`。不带 id 表示审批全部 `pending`，
+   - 终端：`.\.venv\Scripts\confluence-mcp-review.exe approve <id>`。不带 id 表示审批全部 `pending`，
      需输入 `yes`，确认后立即写入。
 
-   `uv run confluence-mcp-review`（等同 `list`）查看队列；`reject <id>` 可随时拒绝，无需交互式终端。
+   `.\.venv\Scripts\confluence-mcp-review.exe`（等同 `list`）查看队列；`reject <id>` 可随时拒绝，无需交互式终端。
    `web` 和 `approve` 都要求设置 `CONFLUENCE_ENABLE_WRITES=true`。
 3. 批准即写入：每条操作最多发送一次，失败不自动重试。原来的 `apply_approved_operations` 工具已移除。
    Agent 可以用 `list_queued_operations` 看队列，用 `cancel_queued_operations` 撤回尚未审批的操作。
@@ -227,8 +248,8 @@ CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
 - 排队创建页面（待人工审批）：`create_page(space_key="OPS", title="标题", content_markdown="## 内容", dry_run=False)`
 - 预览评论（不写入）：`add_comment(page_id="123456", content_markdown="评审意见", dry_run=True)`
 - 排队评论（待人工审批）：`add_comment(page_id="123456", content_markdown="评审意见", dry_run=False)`
-- 查看待审批队列：终端运行 `uv run confluence-mcp-review`
-- 网页审批并写入：终端运行 `uv run confluence-mcp-review web`
+- 查看待审批队列：终端运行 `.\.venv\Scripts\confluence-mcp-review.exe`
+- 网页审批并写入：终端运行 `.\.venv\Scripts\confluence-mcp-review.exe web`
 - 看自己入队的操作：`list_queued_operations()`；撤回未审批的：`cancel_queued_operations(operation_ids=["..."])`
 
 `section` 只支持 `markdown` / `storage` 输出；`html` 是整个 `body.view`，无法按章节切分。
@@ -245,16 +266,17 @@ MCP 不会绕过 Confluence 权限；结果只包含 PAT 所属用户能读取�
 - TLS/连接错误：检查 VPN、DNS、代理与 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`。
 - 重定向错误：确认 `ATLASSIAN_CONFLUENCE_URL` 指向实际 Confluence 根地址，而非登录页、反向代理跳转地址或 `/rest/api`。
 
-服务启动时会读取工作目录下的 `.env`（见上文“本地配置文件”）。如果 `.env` 没生效，检查 `cwd` 是否指向仓库根目录。不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；优先使用系统凭据库。
+服务启动时按上文“本地配置文件”加载 `.env`。如果配置没生效，检查 `CONFLUENCE_MCP_ENV_FILE` 是否指向正确文件；未设置该变量时，检查工作目录是否为仓库根目录。不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；优先使用系统凭据库。
 
 ## 开发
 
 ```powershell
-uv sync
-uv run confluence-mcp
+.\.venv\Scripts\python.exe -m pip install -c constraints.txt -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m confluence_mcp.server
 ```
 
-第二条命令会启动 stdio MCP 进程并等待 MCP Host 请求，需由 MCP 客户端管理进程生命周期。
+第三条命令会启动 stdio MCP 进程并等待 MCP Host 请求，需由 MCP 客户端管理进程生命周期。
 
 ## 官方接口依据
 
