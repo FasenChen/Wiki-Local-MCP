@@ -41,16 +41,16 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 ```text
 请帮我在本机安装并注册 Confluence MCP（仓库：https://github.com/FasenChen/Wiki-Local-MCP）。
 
-1. 克隆仓库到 D:\AI\MCP\Wiki-Local-MCP（Windows；已存在则跳过克隆），安装 uv 后在该目录执行 `uv sync`。
-2. 让我本人运行 `uv run confluence-mcp-store-pat`，在隐藏输入提示里粘贴 Confluence PAT。不要让我把 PAT 发到对话里，也不要把 PAT 写进任何配置文件或仓库文件。
-3. 在 MCP Host 配置里注册服务器，别名为 `wiki-local-mcp`：
-   - Codex：在 %USERPROFILE%\.codex\config.toml 追加 [mcp_servers.wiki-local-mcp]（command = "uv"，args = ["run", "confluence-mcp"]，cwd = "<仓库路径>"，env.ATLASSIAN_CONFLUENCE_URL = "<Confluence 根地址，如 https://wiki.example.com/confluence>"）。
-   - Claude Code：在 ~/.claude.json 的 mcpServers 下使用同样的 key、命令、参数、cwd 和 env。
-   其他客户端（WorkBuddy、DeepSeek Harness 等）按 README 第 4 节，用 command=uv、args=["run","confluence-mcp"]、cwd=<仓库路径>、env.ATLASSIAN_CONFLUENCE_URL=<Confluence 根地址> 注册。
-   保留已有配置，不要覆盖整个文件。
+0. 先确认三件事，等我回答后再动手：
+   - 我用的 MCP Host 是哪个（Codex / Claude Code / WorkBuddy / DeepSeek Harness / 其他）；
+   - 仓库放在哪个绝对路径（Windows 默认可用 D:\AI\MCP\Wiki-Local-MCP）；
+   - 公司 Confluence 的根地址（带上下文路径，例如 https://wiki.example.com/confluence，不要加 /rest/api）。
+1. 如果本机没有 uv，先安装 uv；克隆仓库到上面的路径（已存在则跳过），在该目录执行 `uv sync`。
+2. 把 `uv run confluence-mcp-store-pat` 这条命令发给我，让我在自己的终端里运行并粘贴 PAT。不要让我把 PAT 发到对话里，也不要把它写进任何配置文件或仓库文件。
+3. 在 MCP Host 里注册服务器，别名为 `wiki-local-mcp`，字段为 command=uv、args=["run","confluence-mcp"]、cwd=<仓库路径>、env.ATLASSIAN_CONFLUENCE_URL=<Confluence 根地址>。按 README 第 3 节（Codex / Claude Code）或第 4 节（WorkBuddy / DeepSeek Harness / 其他）里对应客户端的格式写。先备份原配置，保留已有内容，不要覆盖整个文件。
 4. 重启/刷新 MCP 服务器，确认工具列表出现 search_pages、get_page、get_page_by_title，并调用 search_pages 搜索一个我有权限查看的词。
 5. 如果连接时出现 TLS/证书错误，提示我设置 ATLASSIAN_CONFLUENCE_CA_BUNDLE 指向公司 CA 证书；不要关闭 TLS 验证。
-6. 改动前先备份 MCP 配置文件；完成后告诉我改了哪个文件、加了哪些内容。
+6. 完成后告诉我：改了哪个文件、加了哪些内容、如何回滚；如果哪一步失败，贴出原始报错，不要自行猜测或跳过。
 ```
 
 ### 1. 安装依赖
