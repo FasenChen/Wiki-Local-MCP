@@ -7,9 +7,9 @@ from confluence_mcp.client import ConfluenceAPIError, ConfluenceClient, Confluen
 
 
 @pytest.fixture(autouse=True)
-def _writes(monkeypatch, tmp_path):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+def _writes(monkeypatch, tmp_path, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.delitem(config_values, "CONFLUENCE_WRITE_SPACES", raising=False)
     monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
 
 
@@ -104,8 +104,8 @@ def test_rejects_bad_arguments(tree, position, target):
         server.move_page("13", position, target)
 
 
-def test_respects_space_whitelist(tree, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "QA")
+def test_respects_space_whitelist(tree, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_WRITE_SPACES", "QA")
     with pytest.raises(ConfluenceConfigurationError):
         server.move_page("13", "before", "11")
 

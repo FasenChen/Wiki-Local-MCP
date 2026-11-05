@@ -6,54 +6,71 @@ from confluence_mcp import writes
 from confluence_mcp.client import ConfluenceConfigurationError
 
 
+def test_process_env_cannot_enable_writes(config_values, monkeypatch):
+    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+    assert writes.writes_enabled() is False
+
+
+def test_process_env_cannot_bypass_space_whitelist(config_values, monkeypatch):
+    config_values.update({
+        "CONFLUENCE_ENABLE_WRITES": "true",
+        "CONFLUENCE_WRITE_SPACES": "OPS",
+    })
+    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "QA")
+    writes.ensure_write_allowed("OPS")
+    with pytest.raises(ConfluenceConfigurationError):
+        writes.ensure_write_allowed("QA")
+
+
 @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", " true "])
-def test_writes_enabled_accepts_truthy_values(monkeypatch, value):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", value)
+def test_writes_enabled_accepts_truthy_values(monkeypatch, value, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", value)
 
     assert writes.writes_enabled() is True
 
 
 @pytest.mark.parametrize("value", ["", "false", "0", "no"])
-def test_writes_enabled_rejects_falsy_values(monkeypatch, value):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", value)
+def test_writes_enabled_rejects_falsy_values(monkeypatch, value, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", value)
 
     assert writes.writes_enabled() is False
 
 
-def test_ensure_write_allowed_rejects_when_disabled(monkeypatch):
-    monkeypatch.delenv("CONFLUENCE_ENABLE_WRITES", raising=False)
+def test_ensure_write_allowed_rejects_when_disabled(monkeypatch, config_values):
+    monkeypatch.delitem(config_values, "CONFLUENCE_ENABLE_WRITES", raising=False)
 
     with pytest.raises(ConfluenceConfigurationError, match="CONFLUENCE_ENABLE_WRITES"):
         writes.ensure_write_allowed("OPS")
 
 
-def test_whitelist_allows_listed_space(monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "OPS, QA")
+def test_whitelist_allows_listed_space(monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.setitem(config_values, "CONFLUENCE_WRITE_SPACES", "OPS, QA")
 
     writes.ensure_write_allowed("OPS")
     writes.ensure_write_allowed("QA")
 
 
-def test_whitelist_rejects_unlisted_space(monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "OPS,QA")
+def test_whitelist_rejects_unlisted_space(monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.setitem(config_values, "CONFLUENCE_WRITE_SPACES", "OPS,QA")
 
     with pytest.raises(ConfluenceConfigurationError, match="not in CONFLUENCE_WRITE_SPACES"):
         writes.ensure_write_allowed("DEV")
 
 
-def test_whitelist_is_case_sensitive(monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "OPS")
+def test_whitelist_is_case_sensitive(monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.setitem(config_values, "CONFLUENCE_WRITE_SPACES", "OPS")
 
     with pytest.raises(ConfluenceConfigurationError):
         writes.ensure_write_allowed("ops")
 
 
-def test_empty_whitelist_allows_every_space(monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "  ,  ")
+def test_empty_whitelist_allows_every_space(monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.setitem(config_values, "CONFLUENCE_WRITE_SPACES", "  ,  ")
 
     writes.ensure_write_allowed("ANY")
 

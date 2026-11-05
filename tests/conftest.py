@@ -1,10 +1,19 @@
-import os
-import tempfile
+from unittest.mock import patch
 
 import pytest
 
-# Must run before any confluence_mcp import: importing the package loads the repo .env.
-os.environ["CONFLUENCE_MCP_ENV_FILE"] = os.path.join(tempfile.gettempdir(), "confluence-mcp-no-env-file")
+from confluence_mcp import settings_file
+
+# Prevent collection-time tool registration from reading the user's project .env.
+with patch.object(settings_file, "load_env_file", return_value={}):
+    settings_file.get_settings()
+
+
+@pytest.fixture(autouse=True)
+def config_values(monkeypatch):
+    values = {}
+    monkeypatch.setattr(settings_file, "get_settings", lambda: values)
+    return values
 
 
 @pytest.fixture(autouse=True)

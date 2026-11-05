@@ -4,17 +4,17 @@ import importlib
 from confluence_mcp import server
 
 
-def _registered_tool_names(monkeypatch, value):
+def _registered_tool_names(monkeypatch, config_values, value):
     if value is None:
-        monkeypatch.delenv("CONFLUENCE_ENABLE_WRITES", raising=False)
+        monkeypatch.delitem(config_values, "CONFLUENCE_ENABLE_WRITES", raising=False)
     else:
-        monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", value)
+        monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", value)
     module = importlib.reload(server)
     return {tool.name for tool in asyncio.run(module.mcp.list_tools())}
 
 
-def test_write_tools_are_hidden_by_default(monkeypatch):
-    names = _registered_tool_names(monkeypatch, None)
+def test_write_tools_are_hidden_by_default(monkeypatch, config_values):
+    names = _registered_tool_names(monkeypatch, config_values, None)
 
     assert "create_page" not in names
     assert "add_comment" not in names
@@ -22,8 +22,8 @@ def test_write_tools_are_hidden_by_default(monkeypatch):
     assert {"search_pages", "get_page", "cql_search"} <= names
 
 
-def test_write_tools_appear_when_enabled(monkeypatch):
-    names = _registered_tool_names(monkeypatch, "true")
+def test_write_tools_appear_when_enabled(monkeypatch, config_values):
+    names = _registered_tool_names(monkeypatch, config_values, "true")
 
     assert {
         "create_page",

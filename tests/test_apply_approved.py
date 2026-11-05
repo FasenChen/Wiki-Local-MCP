@@ -5,9 +5,9 @@ from confluence_mcp.client import ConfluenceAPIError
 
 
 @pytest.fixture(autouse=True)
-def audit_log(monkeypatch, tmp_path):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+def audit_log(monkeypatch, tmp_path, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.delitem(config_values, "CONFLUENCE_WRITE_SPACES", raising=False)
     log = tmp_path / "audit.log"
     monkeypatch.setattr(writes, "AUDIT_PATH", log)
     return log
@@ -81,9 +81,9 @@ def test_timeout_is_indeterminate_and_rest_stay_pending(fake_client):
     assert [r["status"] for r in queue.list_ops()] == ["indeterminate", "pending", "pending"]
 
 
-def test_whitelist_is_rechecked(fake_client, monkeypatch):
+def test_whitelist_is_rechecked(fake_client, monkeypatch, config_values):
     op = _enqueue(space_key="OPS")
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "QA")
+    monkeypatch.setitem(config_values, "CONFLUENCE_WRITE_SPACES", "QA")
     assert apply.approve_and_apply(fake_client, [op])["executed"][0]["status"] == "failed"
     assert fake_client.updated == []
 

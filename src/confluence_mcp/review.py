@@ -56,7 +56,7 @@ def _approve(ids: list[str]) -> int:
         print("approve needs an interactive terminal", file=sys.stderr)
         return 2
     if not writes_enabled():
-        print(f"approve writes to Confluence; set {WRITE_FLAG}=true first", file=sys.stderr)
+        print(f"approve writes to Confluence; set {WRITE_FLAG}=true in the project root .env and restart", file=sys.stderr)
         return 2
     for op_id in queue.recover_stale_executing():
         print(f"interrupted earlier, outcome unknown (check Confluence): {op_id}")
@@ -85,7 +85,7 @@ def _web() -> int:
         print("web needs an interactive terminal", file=sys.stderr)
         return 2
     if not writes_enabled():
-        print(f"web writes to Confluence; set {WRITE_FLAG}=true first", file=sys.stderr)
+        print(f"web writes to Confluence; set {WRITE_FLAG}=true in the project root .env and restart", file=sys.stderr)
         return 2
     queue.recover_stale_executing()
     web.serve(get_client())

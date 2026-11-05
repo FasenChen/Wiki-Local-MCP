@@ -1,6 +1,6 @@
 # Confluence MCP
 
-面向本地部署的 Atlassian Confluence Data Center 8.5.15 的 MCP 工具。MCP 进程在本机运行，通过 Confluence REST API 访问当前账号有权查看的内容。默认只注册读工具；写工具需要通过环境变量显式开启，且默认 `dry_run`。
+面向本地部署的 Atlassian Confluence Data Center 8.5.15 的 MCP 工具。MCP 进程在本机运行，通过 Confluence REST API 访问当前账号有权查看的内容。默认只注册读工具；写工具需要在项目根目录的 `.env` 中显式开启，且默认 `dry_run`。
 
 ## 能力
 
@@ -56,7 +56,7 @@ python3 -m venv .venv
 
 后续示例中的 `.venv\Scripts\python.exe` 对应 `.venv/bin/python`；其他 `.exe` 命令对应 `.venv/bin/` 下的同名命令（不带 `.exe`）。
 
-### 2. 保存 PAT
+### 2. 保存 PAT 并配置 .env
 
 ```powershell
 .\.venv\Scripts\confluence-mcp-store-pat.exe
@@ -66,6 +66,14 @@ python3 -m venv .venv
 
 如果之前仅通过环境变量提供 PAT，请先运行上述命令保存凭据，再重启 MCP。保存凭据和运行 MCP 必须使用同一系统用户。
 
+若项目根目录尚无 `.env`，在该目录执行：
+
+```powershell
+Copy-Item -LiteralPath '.env.example' -Destination '.env'
+```
+
+编辑 `.env`，填写 `ATLASSIAN_CONFLUENCE_URL`；内部 CA、写开关和空间白名单按需填写。地址要带上下文路径（如有），不要加 `/rest/api`。原先通过客户端环境变量提供这些配置的用户，请先将其迁入项目根目录的 `.env`，再启用新版本并重启 MCP 和审批服务。
+
 ### 3. 注册 MCP 客户端
 
 所有 stdio 客户端直接使用项目虚拟环境中的 Python：
@@ -74,19 +82,12 @@ python3 -m venv .venv
 D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
 ```
 
-客户端设置以下环境变量；`.env` 使用绝对路径，因此客户端无需切换工作目录：
-
-```text
-ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence
-CONFLUENCE_MCP_ENV_FILE=D:\Code\Wiki-Local-MCP\.env
-```
-
-地址要带上下文路径（如有），不要加 `/rest/api`。
+服务从源码项目根目录的 `.env` 读取普通配置，客户端无需指定配置文件路径或工作目录。
 
 #### Claude Code
 
 ```powershell
-claude mcp add wiki-local-mcp -e ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence -e CONFLUENCE_MCP_ENV_FILE=D:\Code\Wiki-Local-MCP\.env -- D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
+claude mcp add wiki-local-mcp -- D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
 ```
 
 默认写入当前项目；加 `--scope user` 对所有项目生效。用 `claude mcp list` 检查。
@@ -94,7 +95,7 @@ claude mcp add wiki-local-mcp -e ATLASSIAN_CONFLUENCE_URL=https://wiki.example.c
 #### Codex
 
 ```powershell
-codex mcp add wiki-local-mcp --env ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence --env CONFLUENCE_MCP_ENV_FILE=D:\Code\Wiki-Local-MCP\.env -- D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
+codex mcp add wiki-local-mcp -- D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
 ```
 
 也可手写 `%USERPROFILE%\.codex\config.toml`：
@@ -105,10 +106,6 @@ command = "D:\\Code\\Wiki-Local-MCP\\.venv\\Scripts\\python.exe"
 args = ["-m", "confluence_mcp.server"]
 startup_timeout_sec = 20
 tool_timeout_sec = 60
-
-[mcp_servers.wiki-local-mcp.env]
-ATLASSIAN_CONFLUENCE_URL = "https://wiki.example.com/confluence"
-CONFLUENCE_MCP_ENV_FILE = "D:\\Code\\Wiki-Local-MCP\\.env"
 ```
 
 保留文件已有内容，不要覆盖整个文件。
@@ -121,11 +118,7 @@ CONFLUENCE_MCP_ENV_FILE = "D:\\Code\\Wiki-Local-MCP\\.env"
     "wiki-local-mcp": {
       "type": "stdio",
       "command": "D:\\Code\\Wiki-Local-MCP\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "confluence_mcp.server"],
-      "env": {
-        "ATLASSIAN_CONFLUENCE_URL": "https://wiki.example.com/confluence",
-        "CONFLUENCE_MCP_ENV_FILE": "D:\\Code\\Wiki-Local-MCP\\.env"
-      }
+      "args": ["-m", "confluence_mcp.server"]
     }
   }
 }
@@ -145,22 +138,19 @@ DSH 把每个服务器配置成 `@deepseek-ai/dsh-mcp-client` 插件实例，写
     transport: stdio
     command: 'D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe'
     args: ['-m', 'confluence_mcp.server']
-    env:
-      ATLASSIAN_CONFLUENCE_URL: https://wiki.example.com/confluence
-      CONFLUENCE_MCP_ENV_FILE: 'D:\Code\Wiki-Local-MCP\.env'
 ```
 
 `serverName` 只能包含字母、数字、`_`、`-`，工具显示为 `mcp__wiki-local-mcp__<工具名>`。
 
 #### 其他客户端
 
-选择 stdio / command 类型，填入上面的 `command`、`args`、`env` 三个值；不需要单独配置 cwd。
+选择 stdio / command 类型，填入上面的 `command`、`args`；不需要单独配置 cwd。
 
 ### 4. 确认连接
 
 确认工具列表出现 `search_pages`、`get_page`、`get_page_by_title`，调用 `search_pages` 搜索一个有权限查看的词。MCP 运行机器必须能访问 Confluence。
 
-若公司使用内部 CA，设置 `ATLASSIAN_CONFLUENCE_CA_BUNDLE=<证书路径>`；不要关闭 TLS 验证。
+若公司使用内部 CA，在项目根目录的 `.env` 中设置 `ATLASSIAN_CONFLUENCE_CA_BUNDLE=<证书路径>`；不要关闭 TLS 验证。
 
 ### 5. 让 AI 代理安装（可选）
 
@@ -170,23 +160,25 @@ DSH 把每个服务器配置成 `@deepseek-ai/dsh-mcp-client` 插件实例，写
 按 https://github.com/FasenChen/Wiki-Local-MCP 的 README 安装并注册 Confluence MCP。
 
 先问我：MCP 客户端、仓库绝对路径、Confluence 根地址。
-然后：确认 Python 3.10+ → 克隆仓库并用 `python -m venv .venv` 创建环境 → 用该环境的 Python 执行 `-m pip install -c constraints.txt -e .` → 把虚拟环境中的 `confluence-mcp-store-pat` 命令给我自己运行 → 按 README 第 3 节对应客户端注册（别名 wiki-local-mcp），设置 `.env` 的绝对路径 → 重启并调用 search_pages 验证。
+然后：确认 Python 3.10+ → 克隆仓库并用 `python -m venv .venv` 创建环境 → 用该环境的 Python 执行 `-m pip install -c constraints.txt -e .` → 在项目根目录按示例配置 `.env` → 把虚拟环境中的 `confluence-mcp-store-pat` 命令给我自己运行 → 按 README 第 3 节对应客户端注册（别名 wiki-local-mcp）→ 重启并调用 search_pages 验证。
 不要读取或让我粘贴 PAT；改配置前先备份，完成后说明改了哪个文件、如何回滚。
 ```
 
 ## 本地配置文件 `.env`（可选）
 
-MCP 启动时优先读取 `CONFLUENCE_MCP_ENV_FILE` 指定的文件；未设置时读取当前工作目录下的 `.env`（参考 `.env.example`）。客户端按上面的示例设置绝对路径，即可从任意工作目录启动。地址、CA、写操作开关等非秘密配置仍以进程环境变量优先，`.env` 不会覆盖已设置的值。`.env` 不读取 PAT，PAT 仅从当前系统用户的凭据库读取。
+MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`）读取地址、CA、写开关和空间白名单。启动目录、`CONFLUENCE_MCP_ENV_FILE` 及同名进程环境变量不会改变这些设置；PAT 仅从当前系统用户的凭据库读取。
 
-- 文件不存在时静默跳过。行尾注释需要 `#` 前有空格，例如 `CONFLUENCE_WRITE_SPACES=OPS # 已批准`。
+- 文件不存在时按空配置处理，写操作默认关闭；使用连接功能前仍需配置 URL。行尾注释需要 `#` 前有空格，例如 `CONFLUENCE_WRITE_SPACES=OPS # 已批准`。
+- 每个进程首次使用配置时读取一次；修改 `.env` 后需重启 MCP 和正在运行的审批服务。
+- 此定位方式适用于上述源码／可编辑安装。脱离源码的普通 wheel 安装没有本方案定义的项目根目录，需另行约定配置位置。
 
 ## 启用写操作与人工审批（可选）
 
-默认情况下服务器不注册任何写工具。启用方式是在 MCP 配置的 `env` 中加入：
+默认情况下服务器不注册任何写工具。启用方式是在项目根目录的 `.env` 中加入以下配置，然后重启 MCP：
 
-```toml
-CONFLUENCE_ENABLE_WRITES = "true"
-CONFLUENCE_WRITE_SPACES = "OPS,QA"   # 可选；不设置表示不限制空间
+```text
+CONFLUENCE_ENABLE_WRITES=true
+CONFLUENCE_WRITE_SPACES=OPS,QA   # 可选；不设置表示不限制空间
 ```
 
 所有写工具默认 `dry_run=true`：只返回将要发生的变更（目标、storage 预览）。
@@ -268,7 +260,7 @@ MCP 不会绕过 Confluence 权限；结果只包含 PAT 所属用户能读取�
 - TLS/连接错误：检查 VPN、DNS、代理与 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`。
 - 重定向错误：确认 `ATLASSIAN_CONFLUENCE_URL` 指向实际 Confluence 根地址，而非登录页、反向代理跳转地址或 `/rest/api`。
 
-服务启动时按上文“本地配置文件”加载 `.env`。如果配置没生效，检查 `CONFLUENCE_MCP_ENV_FILE` 是否指向正确文件；未设置该变量时，检查工作目录是否为仓库根目录。不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；PAT 仅从当前系统用户的凭据库读取。
+如果配置没生效，检查源码项目根目录的 `.env` 及其中的配置值，然后重启 MCP 和审批服务。不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；PAT 仅从当前系统用户的凭据库读取。
 
 ## 开发
 

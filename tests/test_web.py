@@ -11,9 +11,9 @@ TOKEN = "tok"
 
 
 @pytest.fixture(autouse=True)
-def _writes(monkeypatch, tmp_path):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+def _writes(monkeypatch, tmp_path, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.delitem(config_values, "CONFLUENCE_WRITE_SPACES", raising=False)
     monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
 
 

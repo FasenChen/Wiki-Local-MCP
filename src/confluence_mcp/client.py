@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -12,6 +11,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import httpx
 import keyring
 
+from . import settings_file
 from .credentials import KEYRING_SERVICE, KEYRING_USERNAME
 
 
@@ -39,11 +39,12 @@ class ConfluenceSettings:
 
     @classmethod
     def from_environment(cls) -> "ConfluenceSettings":
-        raw_url = os.environ.get("ATLASSIAN_CONFLUENCE_URL", "").strip()
+        settings = settings_file.get_settings()
+        raw_url = settings.get("ATLASSIAN_CONFLUENCE_URL", "").strip()
         if not raw_url:
             raise ConfluenceConfigurationError(
-                "Set ATLASSIAN_CONFLUENCE_URL to the Confluence base URL, "
-                "including any context path such as /confluence."
+                "Set ATLASSIAN_CONFLUENCE_URL in the project root .env to the Confluence "
+                "base URL, including any context path such as /confluence."
             )
 
         parsed = urlsplit(raw_url)
@@ -70,7 +71,7 @@ class ConfluenceSettings:
                 "from the project's virtual environment."
             )
 
-        ca_bundle = os.environ.get("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "").strip() or None
+        ca_bundle = settings.get("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "").strip() or None
         return cls(normalized_url, pat, ca_bundle)
 
 

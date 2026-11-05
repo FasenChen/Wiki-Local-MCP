@@ -1,15 +1,19 @@
-"""Load MCP settings from a local .env file without overriding the process environment."""
+"""Load MCP settings from the project's .env file."""
 
 from __future__ import annotations
 
-import os
 import re
+from functools import lru_cache
 from pathlib import Path
 
-ENV_FILE_VAR = "CONFLUENCE_MCP_ENV_FILE"
-DEFAULT_ENV_FILE = Path.cwd() / ".env"
+PROJECT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 _COMMENT = re.compile(r"(?:^|\s)#")
-_SECRET_KEYS = {"ATLASSIAN_CONFLUENCE_PAT"}
+_SETTING_KEYS = {
+    "ATLASSIAN_CONFLUENCE_URL",
+    "ATLASSIAN_CONFLUENCE_CA_BUNDLE",
+    "CONFLUENCE_ENABLE_WRITES",
+    "CONFLUENCE_WRITE_SPACES",
+}
 
 
 def _value(raw: str) -> str:
@@ -39,14 +43,13 @@ def parse_env(text: str) -> dict[str, str]:
     return values
 
 
-def load_env_file(path: Path) -> list[str]:
+def load_env_file(path: Path) -> dict[str, str]:
     if not path.is_file():
-        return []
-    loaded = []
-    for key, value in parse_env(path.read_text(encoding="utf-8-sig")).items():
-        # The PAT comes only from the OS credential store.
-        if key in _SECRET_KEYS or key in os.environ:
-            continue
-        os.environ[key] = value
-        loaded.append(key)
-    return loaded
+        return {}
+    values = parse_env(path.read_text(encoding="utf-8-sig"))
+    return {key: value for key, value in values.items() if key in _SETTING_KEYS}
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> dict[str, str]:
+    return load_env_file(PROJECT_ENV_FILE)

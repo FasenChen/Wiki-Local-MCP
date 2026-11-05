@@ -4,9 +4,9 @@ from confluence_mcp import queue, server
 from confluence_mcp.client import ConfluenceAPIError, ConfluenceConfigurationError
 
 
-def test_create_page_dry_run_previews_without_posting(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+def test_create_page_dry_run_previews_without_posting(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.delitem(config_values, "CONFLUENCE_WRITE_SPACES", raising=False)
 
     result = server.create_page("OPS", "Release", "## Notes\n\nhello", dry_run=True)
 
@@ -16,8 +16,8 @@ def test_create_page_dry_run_previews_without_posting(fake_client, monkeypatch):
     assert fake_client.created == []
 
 
-def test_create_page_rejects_existing_title(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_create_page_rejects_existing_title(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.search_response = {
         "results": [
             {
@@ -35,24 +35,24 @@ def test_create_page_rejects_existing_title(fake_client, monkeypatch):
     assert "https://wiki.example.com/pages/7" in str(excinfo.value)
 
 
-def test_create_page_rejects_parent_in_another_space(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_create_page_rejects_parent_in_another_space(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["5"] = {"id": "5", "title": "Parent", "space": {"key": "QA"}}
 
     with pytest.raises(ValueError, match="different space"):
         server.create_page("OPS", "Release", "x", parent_page_id="5")
 
 
-def test_create_page_respects_whitelist(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "QA")
+def test_create_page_respects_whitelist(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.setitem(config_values, "CONFLUENCE_WRITE_SPACES", "QA")
 
     with pytest.raises(ConfluenceConfigurationError):
         server.create_page("OPS", "Release", "x")
 
 
-def test_create_page_queues_payload(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_create_page_queues_payload(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
 
     result = server.create_page("OPS", "Release", "hello", dry_run=False)
 

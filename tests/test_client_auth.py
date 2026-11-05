@@ -7,18 +7,20 @@ from confluence_mcp.client import ConfluenceConfigurationError, ConfluenceSettin
 
 
 @pytest.fixture(autouse=True)
-def _no_keyring(monkeypatch):
+def _no_keyring(monkeypatch, config_values):
     monkeypatch.setattr(client.keyring, "get_password", lambda *_: None)
-    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://wiki.example.com/confluence")
+    monkeypatch.setitem(config_values, "ATLASSIAN_CONFLUENCE_URL", "https://wiki.example.com/confluence")
     monkeypatch.delenv("ATLASSIAN_CONFLUENCE_PAT", raising=False)
 
 
 @pytest.mark.parametrize("env_pat", [None, "", "inherited-token"])
-def test_pat_comes_from_credential_store(monkeypatch, env_pat):
+def test_pat_comes_from_credential_store(monkeypatch, env_pat, config_values):
     if env_pat is not None:
         monkeypatch.setenv("ATLASSIAN_CONFLUENCE_PAT", env_pat)
-    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://wiki.example.com/confluence/")
-    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "C:/certs/wiki-ca.pem")
+    monkeypatch.setitem(config_values, "ATLASSIAN_CONFLUENCE_URL", "https://wiki.example.com/confluence/")
+    monkeypatch.setitem(config_values, "ATLASSIAN_CONFLUENCE_CA_BUNDLE", "C:/certs/wiki-ca.pem")
+    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://process.example.com")
+    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "C:/certs/process-ca.pem")
     lookup = Mock(return_value="stored-token")
     monkeypatch.setattr(client.keyring, "get_password", lookup)
     settings = ConfluenceSettings.from_environment()
@@ -55,4 +57,11 @@ def test_username_and_password_alone_are_rejected(monkeypatch):
     monkeypatch.setenv("ATLASSIAN_CONFLUENCE_USERNAME", "alice")
     monkeypatch.setenv("ATLASSIAN_CONFLUENCE_PASSWORD", "secret")
     with pytest.raises(ConfluenceConfigurationError, match="PAT"):
+        ConfluenceSettings.from_environment()
+
+
+def test_process_url_cannot_replace_missing_file_value(config_values, monkeypatch):
+    config_values.pop("ATLASSIAN_CONFLUENCE_URL", None)
+    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://process.example.com")
+    with pytest.raises(ConfluenceConfigurationError, match="ATLASSIAN_CONFLUENCE_URL"):
         ConfluenceSettings.from_environment()

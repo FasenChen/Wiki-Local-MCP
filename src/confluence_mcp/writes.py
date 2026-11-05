@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import settings_file
 from .client import ConfluenceConfigurationError
 
 WRITE_FLAG = "CONFLUENCE_ENABLE_WRITES"
@@ -16,15 +16,15 @@ AUDIT_PATH = Path.home() / ".confluence-mcp" / "audit.log"
 
 
 def writes_enabled() -> bool:
-    return os.environ.get(WRITE_FLAG, "").strip().lower() in {"1", "true", "yes"}
+    return settings_file.get_settings().get(WRITE_FLAG, "").strip().lower() in {"1", "true", "yes"}
 
 
 def ensure_write_allowed(space_key: str | None) -> None:
     if not writes_enabled():
         raise ConfluenceConfigurationError(
-            f"Writes are disabled. Set {WRITE_FLAG}=true to enable write tools."
+            f"Writes are disabled. Set {WRITE_FLAG}=true in the project root .env and restart."
         )
-    allowed = {item.strip() for item in os.environ.get(WRITE_SPACES, "").split(",") if item.strip()}
+    allowed = {item.strip() for item in settings_file.get_settings().get(WRITE_SPACES, "").split(",") if item.strip()}
     if allowed and space_key not in allowed:
         raise ConfluenceConfigurationError(
             f'Space "{space_key}" is not in {WRITE_SPACES}. Allowed spaces: {", ".join(sorted(allowed))}.'
