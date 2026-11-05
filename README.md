@@ -34,59 +34,55 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 
 ## 安装和认证
 
-### 0. 用提示词安装（推荐）
+### 1. 前置条件
 
-把下面整段提示词交给 Claude Code / Codex，让代理完成克隆、安装和注册。PAT 的输入由你本人在隐藏提示中完成。
+- [uv](https://docs.astral.sh/uv/)（会自行安装 Python）
+- Confluence Data Center PAT，且账号对目标 Space/Page 有读取权限
 
-```text
-请帮我在本机安装并注册 Confluence MCP（仓库：https://github.com/FasenChen/Wiki-Local-MCP）。
-
-0. 先确认三件事，等我回答后再动手：
-   - 我用的 MCP Host 是哪个（Codex / Claude Code / WorkBuddy / DeepSeek Harness / 其他）；
-   - 仓库放在哪个绝对路径（Windows 默认可用 D:\AI\MCP\Wiki-Local-MCP）；
-   - 公司 Confluence 的根地址（带上下文路径，例如 https://wiki.example.com/confluence，不要加 /rest/api）。
-1. 如果本机没有 uv，先安装 uv；克隆仓库到上面的路径（已存在则跳过），在该目录执行 `uv sync`。
-2. 把 `uv run confluence-mcp-store-pat` 这条命令发给我，让我在自己的终端里运行并粘贴 PAT。不要让我把 PAT 发到对话里，也不要把它写进任何配置文件或仓库文件。
-3. 在 MCP Host 里注册服务器，别名为 `wiki-local-mcp`，字段为 command=uv、args=["run","confluence-mcp"]、cwd=<仓库路径>、env.ATLASSIAN_CONFLUENCE_URL=<Confluence 根地址>。按 README 第 3 节（Codex / Claude Code）或第 4 节（WorkBuddy / DeepSeek Harness / 其他）里对应客户端的格式写。先备份原配置，保留已有内容，不要覆盖整个文件。
-4. 重启/刷新 MCP 服务器，确认工具列表出现 search_pages、get_page、get_page_by_title，并调用 search_pages 搜索一个我有权限查看的词。
-5. 如果连接时出现 TLS/证书错误，提示我设置 ATLASSIAN_CONFLUENCE_CA_BUNDLE 指向公司 CA 证书；不要关闭 TLS 验证。
-6. 完成后告诉我：改了哪个文件、加了哪些内容、如何回滚；如果哪一步失败，贴出原始报错，不要自行猜测或跳过。
-```
-
-### 1. 安装依赖
-
-在 PowerShell 中进入仓库目录并同步依赖：
+### 2. 保存 PAT
 
 ```powershell
-Set-Location D:\AI\MCP\Wiki-Local-MCP
-uv sync
+uv run --directory D:\AI\MCP\Wiki-Local-MCP confluence-mcp-store-pat
 ```
 
-### 2. 保存 Confluence PAT
+在隐藏输入提示中粘贴 PAT，保存到系统凭据库。也可用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；`.env` 不读取 PAT。
 
-推荐使用 Confluence Personal Access Token（PAT）。运行下面的命令后，在隐藏输入提示中粘贴 PAT；它会保存到当前 Windows 用户的 Credential Manager，不会写入仓库或 Codex 配置：
+### 3. 注册 MCP 客户端
 
-```powershell
-uv run confluence-mcp-store-pat
-```
-
-同一 Windows 用户启动的 MCP 进程会从系统凭据库读取 PAT，服务名为 `confluence-mcp`，用户名为 `pat`。升级已有安装后，如原凭据保存在其他服务名下，需迁移凭据或重新运行上述命令保存 PAT。也可使用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；它优先于凭据库。不要将 PAT 或密码写入 `config.toml`。
-
-### 3. 注册到 Codex Desktop
-
-Codex Desktop、Codex CLI 与 IDE 扩展共用个人配置文件：
+所有 stdio 客户端使用同一条启动命令。`--directory` 会切到仓库目录，因此 `.env` 和 `uv` 环境都能找到：
 
 ```text
-%USERPROFILE%\.codex\config.toml
+uv run --directory <仓库绝对路径> confluence-mcp
 ```
 
-先保留文件中的现有内容，再把下面配置追加到文件末尾；不要用此示例覆盖整个配置文件：
+唯一需要配置的环境变量：
+
+```text
+ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence
+```
+
+地址要带上下文路径（如有），不要加 `/rest/api`。
+
+#### Claude Code
+
+```powershell
+claude mcp add wiki-local-mcp -e ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence -- uv run --directory D:\AI\MCP\Wiki-Local-MCP confluence-mcp
+```
+
+默认写入当前项目；加 `--scope user` 对所有项目生效。用 `claude mcp list` 检查。
+
+#### Codex
+
+```powershell
+codex mcp add wiki-local-mcp --env ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com/confluence -- uv run --directory D:\AI\MCP\Wiki-Local-MCP confluence-mcp
+```
+
+也可手写 `%USERPROFILE%\.codex\config.toml`：
 
 ```toml
 [mcp_servers.wiki-local-mcp]
 command = "uv"
-args = ["run", "confluence-mcp"]
-cwd = "D:\\AI\\MCP\\Wiki-Local-MCP"
+args = ["run", "--directory", "D:\\AI\\MCP\\Wiki-Local-MCP", "confluence-mcp"]
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 
@@ -94,26 +90,9 @@ tool_timeout_sec = 60
 ATLASSIAN_CONFLUENCE_URL = "https://wiki.example.com/confluence"
 ```
 
-将示例地址替换成你们 Confluence 的站点根地址，并包含部署使用的上下文路径（如有）；不要在地址后加 `/rest/api`。如果 Codex 找不到 `uv`，将 `command` 替换为 `uv.exe` 的绝对路径。
+保留文件已有内容，不要覆盖整个文件。
 
-MCP Host 的注册别名统一使用 `wiki-local-mcp`。Claude Code 用户在 `~/.claude.json` 中使用同名 key；已有配置更名时只改 key，保留命令、参数、cwd、env。
-
-也可以在 Codex Desktop 打开 **Settings → MCP Servers → Add Server**，选择 **STDIO**，配置命令、参数、工作目录和环境变量。保存后重启/刷新 MCP 服务器。CLI 可用 `codex mcp list` 查看登记状态。
-
-### 4. 注册到其他 MCP 客户端
-
-所有本地 stdio 客户端最终都只需要四个值：
-
-```text
-command = uv
-args    = ["run", "confluence-mcp"]
-cwd     = <仓库绝对路径>
-env     = ATLASSIAN_CONFLUENCE_URL=<Confluence 根地址>
-```
-
-按客户端支持的格式填入即可：
-
-**WorkBuddy**：在 **Plugins → MCP Server → Configure MCP** 添加，或编辑它提示的 `mcp.json`（用户级通常为 `~/.workbuddy/mcp.json`，部分版本为 `~/.workbuddy-ai/mcp.json`；也可放在项目内 `.workbuddy/mcp.json`）：
+#### JSON 客户端（Claude Desktop、Cursor、WorkBuddy、Windsurf、Cline 等）
 
 ```json
 {
@@ -121,8 +100,7 @@ env     = ATLASSIAN_CONFLUENCE_URL=<Confluence 根地址>
     "wiki-local-mcp": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "confluence-mcp"],
-      "cwd": "D:\\AI\\MCP\\Wiki-Local-MCP",
+      "args": ["run", "--directory", "D:\\AI\\MCP\\Wiki-Local-MCP", "confluence-mcp"],
       "env": {
         "ATLASSIAN_CONFLUENCE_URL": "https://wiki.example.com/confluence"
       }
@@ -131,9 +109,11 @@ env     = ATLASSIAN_CONFLUENCE_URL=<Confluence 根地址>
 }
 ```
 
-保存后需要在客户端里信任该服务器，首次连接可能会询问。
+WorkBuddy：通过 **Plugins → MCP Server → Configure MCP** 添加，或写入 `~/.workbuddy/mcp.json`（部分版本为 `~/.workbuddy-ai/mcp.json`）；`type` 可省略。
 
-**DeepSeek Harness（DSH）**：DSH 不使用 `mcpServers` JSON，而是把每个 MCP 服务器配置成一个 `@deepseek-ai/dsh-mcp-client` 插件实例，写在 profile patch（如 `cordis.patch.yml`）里：
+#### DeepSeek Harness
+
+DSH 把每个服务器配置成 `@deepseek-ai/dsh-mcp-client` 插件实例，写在 profile patch（如 `cordis.patch.yml`）里：
 
 ```yaml
 - id: mcp-confluence
@@ -142,21 +122,34 @@ env     = ATLASSIAN_CONFLUENCE_URL=<Confluence 根地址>
     serverName: wiki-local-mcp
     transport: stdio
     command: uv
-    args: ['run', 'confluence-mcp']
-    cwd: D:\AI\MCP\Wiki-Local-MCP
+    args: ['run', '--directory', 'D:\AI\MCP\Wiki-Local-MCP', 'confluence-mcp']
     env:
       ATLASSIAN_CONFLUENCE_URL: https://wiki.example.com/confluence
 ```
 
-`serverName` 只能包含字母、数字、`_`、`-`，且在运行实例中唯一；工具会显示为 `mcp__wiki-local-mcp__<工具名>`。
+`serverName` 只能包含字母、数字、`_`、`-`，工具显示为 `mcp__wiki-local-mcp__<工具名>`。
 
-**其他客户端**（Cursor、Windsurf、Cline、Zed 等）：在它的 MCP 设置里选择 stdio / command 类型，填入上面的四个值。凡是支持环境变量的客户端，都把 `ATLASSIAN_CONFLUENCE_URL` 放在 env 里，不要拼进命令行。
+#### 其他客户端
 
-### 5. 确认连接
+选择 stdio / command 类型，填入上面的 `command`、`args`、`env` 三个值；不需要单独配置 cwd。
 
-在 Codex 的 MCP 工具列表中确认出现 `search_pages`、`get_page` 和 `get_page_by_title`。调用 `search_pages` 搜索一个有权限查看的词，或调用 `get_page` 读取 Page ID。MCP 运行机器必须能通过公司网络/VPN 访问 Confluence。
+### 4. 确认连接
 
-若公司使用内部 CA，将证书包路径设置到 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`；TLS 验证默认开启，不要关闭验证。
+确认工具列表出现 `search_pages`、`get_page`、`get_page_by_title`，调用 `search_pages` 搜索一个有权限查看的词。MCP 运行机器必须能访问 Confluence。
+
+若公司使用内部 CA，设置 `ATLASSIAN_CONFLUENCE_CA_BUNDLE=<证书路径>`；不要关闭 TLS 验证。
+
+### 5. 让 AI 代理安装（可选）
+
+把下面这段话交给 Claude Code / Codex：
+
+```text
+按 https://github.com/FasenChen/Wiki-Local-MCP 的 README 安装并注册 Confluence MCP。
+
+先问我：MCP 客户端、仓库绝对路径、Confluence 根地址。
+然后：确认 uv → 克隆仓库并 `uv sync` → 把 `uv run --directory <仓库> confluence-mcp-store-pat` 给我自己运行 → 按 README 第 3 节对应客户端注册（别名 wiki-local-mcp）→ 重启并调用 search_pages 验证。
+不要读取或让我粘贴 PAT；改配置前先备份，完成后说明改了哪个文件、如何回滚。
+```
 
 ## 本地配置文件 `.env`（可选）
 
