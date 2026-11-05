@@ -44,7 +44,7 @@ def load_env_file(path: Path) -> list[str]:
         return []
     loaded = []
     for key, value in parse_env(path.read_text(encoding="utf-8-sig")).items():
-        # The PAT comes only from the process environment or the OS credential store.
+        # The PAT comes only from the OS credential store.
         if key in _SECRET_KEYS or key in os.environ:
             continue
         os.environ[key] = value

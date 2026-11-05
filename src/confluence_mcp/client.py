@@ -57,21 +57,17 @@ class ConfluenceSettings:
             )
         normalized_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
-        pat = os.environ.get("ATLASSIAN_CONFLUENCE_PAT", "").strip() or None
-        if pat is None:
-            try:
-                pat = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
-            except Exception as exc:
-                raise ConfluenceConfigurationError(
-                    "Could not read the operating-system credential store. Set "
-                    "ATLASSIAN_CONFLUENCE_PAT or save a PAT with "
-                    "`confluence-mcp-store-pat` from the project's virtual environment."
-                ) from exc
+        try:
+            pat = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
+        except Exception as exc:
+            raise ConfluenceConfigurationError(
+                "Could not read the operating-system credential store. Save a PAT with "
+                "`confluence-mcp-store-pat` from the project's virtual environment."
+            ) from exc
         if not pat:
             raise ConfluenceConfigurationError(
                 "No Confluence PAT found. Save one with `confluence-mcp-store-pat` "
-                "from the project's virtual environment, "
-                "or set ATLASSIAN_CONFLUENCE_PAT."
+                "from the project's virtual environment."
             )
 
         ca_bundle = os.environ.get("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "").strip() or None

@@ -62,7 +62,9 @@ python3 -m venv .venv
 .\.venv\Scripts\confluence-mcp-store-pat.exe
 ```
 
-在隐藏输入提示中粘贴 PAT，保存到系统凭据库。也可用环境变量 `ATLASSIAN_CONFLUENCE_PAT`；`.env` 不读取 PAT。
+在隐藏输入提示中粘贴 PAT，保存到当前系统用户的凭据库。PAT 仅从系统凭据库读取，不支持通过进程环境变量或 `.env` 提供。
+
+如果之前仅通过环境变量提供 PAT，请先运行上述命令保存凭据，再重启 MCP。保存凭据和运行 MCP 必须使用同一系统用户。
 
 ### 3. 注册 MCP 客户端
 
@@ -174,7 +176,7 @@ DSH 把每个服务器配置成 `@deepseek-ai/dsh-mcp-client` 插件实例，写
 
 ## 本地配置文件 `.env`（可选）
 
-MCP 启动时优先读取 `CONFLUENCE_MCP_ENV_FILE` 指定的文件；未设置时读取当前工作目录下的 `.env`（参考 `.env.example`）。客户端按上面的示例设置绝对路径，即可从任意工作目录启动。进程环境变量优先，`.env` 不会覆盖已设置的值。`.env` 不读取 PAT，PAT 只能来自系统凭据库或进程环境变量。
+MCP 启动时优先读取 `CONFLUENCE_MCP_ENV_FILE` 指定的文件；未设置时读取当前工作目录下的 `.env`（参考 `.env.example`）。客户端按上面的示例设置绝对路径，即可从任意工作目录启动。地址、CA、写操作开关等非秘密配置仍以进程环境变量优先，`.env` 不会覆盖已设置的值。`.env` 不读取 PAT，PAT 仅从当前系统用户的凭据库读取。
 
 - 文件不存在时静默跳过。行尾注释需要 `#` 前有空格，例如 `CONFLUENCE_WRITE_SPACES=OPS # 已批准`。
 
@@ -266,7 +268,7 @@ MCP 不会绕过 Confluence 权限；结果只包含 PAT 所属用户能读取�
 - TLS/连接错误：检查 VPN、DNS、代理与 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`。
 - 重定向错误：确认 `ATLASSIAN_CONFLUENCE_URL` 指向实际 Confluence 根地址，而非登录页、反向代理跳转地址或 `/rest/api`。
 
-服务启动时按上文“本地配置文件”加载 `.env`。如果配置没生效，检查 `CONFLUENCE_MCP_ENV_FILE` 是否指向正确文件；未设置该变量时，检查工作目录是否为仓库根目录。不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；优先使用系统凭据库。
+服务启动时按上文“本地配置文件”加载 `.env`。如果配置没生效，检查 `CONFLUENCE_MCP_ENV_FILE` 是否指向正确文件；未设置该变量时，检查工作目录是否为仓库根目录。不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；PAT 仅从当前系统用户的凭据库读取。
 
 ## 开发
 
