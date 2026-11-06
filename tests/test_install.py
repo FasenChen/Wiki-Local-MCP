@@ -1,11 +1,15 @@
+import getpass
 import importlib
 import os
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from confluence_mcp.settings_file import load_env_file
 
 
 VALID_CONFIG = (
@@ -19,93 +23,187 @@ def installer():
 
 
 @pytest.fixture
-def project(tmp_path):
+def project(tmp_path, monkeypatch):
     root = tmp_path / "Wiki 安装 folder"
     root.mkdir()
     (root / ".env.example").write_text(
         "ATLASSIAN_CONFLUENCE_URL=\nATLASSIAN_CONFLUENCE_PAT=\n", encoding="utf-8"
     )
     (root / "constraints.txt").write_text("", encoding="utf-8")
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: "")
     return root
 
 
-def test_missing_configuration_opens_editor_and_uses_saved_values(project, monkeypatch, capsys):
+def test_console_setup_creates_config_without_echoing_pat(project, monkeypatch, capsys):
     install = installer()
-    opened = []
+    monkeypatch.setattr("builtins.input", lambda prompt: "https://wiki.example.invalid/confluence")
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: "#sample==")
+    monkeypatch.setattr(install.subprocess, "Popen", lambda *a, **k: pytest.fail("editor opened"))
 
-    def edit(command, **kwargs):
-        opened.append(command)
-        (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
-
-    monkeypatch.setattr(install.subprocess, "Popen", edit)
-    monkeypatch.setattr("builtins.input", lambda prompt: "")
     assert install.ensure_configuration(project)
-    assert (project / ".env").read_text(encoding="utf-8") == VALID_CONFIG
-    assert str(project / ".env") in opened[0]
-    assert "sample-secret" not in repr(opened)
-    assert "sample-secret" not in capsys.readouterr().out
+    values = load_env_file(project / ".env")
+    assert values["ATLASSIAN_CONFLUENCE_URL"] == "https://wiki.example.invalid/confluence"
+    assert values["ATLASSIAN_CONFLUENCE_PAT"] == "#sample=="
+    captured = capsys.readouterr()
+    assert "#sample==" not in captured.out + captured.err
 
 
-def test_existing_valid_configuration_is_not_changed_or_opened(project, monkeypatch):
+def test_console_setup_enter_retains_existing_configuration(project, monkeypatch, capsys):
+    install = installer()
+    path = project / ".env"
+    original = (VALID_CONFIG + "CONFLUENCE_ENABLE_WRITES=true\nPRIVATE_OPTION=keep\n").encode()
+    path.write_bytes(original)
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "")
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: prompts.append(prompt) or "")
+
+    assert install.ensure_configuration(project)
+    assert path.read_bytes() == original
+    assert len(prompts) == 2 and all("已配置" in prompt for prompt in prompts)
+    assert "sample-secret" not in repr(prompts) + capsys.readouterr().out
+
+
+def test_console_edit_preserves_other_settings_and_replaces_duplicate_pat(project, monkeypatch, capsys):
+    install = installer()
+    path = project / ".env"
+    original = ("# user comment\r\n" + VALID_CONFIG.replace("\n", "\r\n") +
+                "export ATLASSIAN_CONFLUENCE_PAT=old-token\r\n"
+                "CONFLUENCE_ENABLE_WRITES=true\r\nCONFLUENCE_WRITE_SPACES=OPS\r\n"
+                "ATLASSIAN_CONFLUENCE_CA_BUNDLE=C:/certs/ca.pem\r\nPRIVATE_OPTION=keep\r\n")
+    path.write_bytes(original.encode("utf-8-sig"))
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: "#new-token==")
+    monkeypatch.setattr(install.subprocess, "Popen", lambda *a, **k: pytest.fail("editor opened"))
+
+    assert install.ensure_configuration(project, edit=True)
+    result = path.read_bytes()
+    assert result.startswith(b"\xef\xbb\xbf") and b"\r\n" in result
+    assert b"# user comment\r\n" in result and b"PRIVATE_OPTION=keep\r\n" in result
+    assert b"CONFLUENCE_ENABLE_WRITES=true\r\n" in result and b"CONFLUENCE_WRITE_SPACES=OPS\r\n" in result
+    assert b"ATLASSIAN_CONFLUENCE_CA_BUNDLE=C:/certs/ca.pem\r\n" in result
+    assert b"old-token" not in result and b"sample-secret" not in result
+    assert load_env_file(path)["ATLASSIAN_CONFLUENCE_PAT"] == "#new-token=="
+    captured = capsys.readouterr()
+    assert "#new-token==" not in captured.out + captured.err
+
+
+def test_console_setup_refuses_password_input_when_echo_cannot_be_disabled(project, monkeypatch, capsys):
     install = installer()
     path = project / ".env"
     path.write_text(VALID_CONFIG, encoding="utf-8")
-    monkeypatch.setattr(install.subprocess, "Popen", lambda *a, **k: pytest.fail("unexpected editor"))
-    assert install.ensure_configuration(project)
-    assert path.read_text(encoding="utf-8") == VALID_CONFIG
+    original = path.read_bytes()
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+
+    def cannot_hide(prompt):
+        warnings.warn("input might be visible", getpass.GetPassWarning)
+        return "sample-secret"
+
+    monkeypatch.setattr(getpass, "getpass", cannot_hide)
+    assert not install.ensure_configuration(project)
+    assert path.read_bytes() == original
+    captured = capsys.readouterr()
+    assert "sample-secret" not in captured.out + captured.err
 
 
-def test_unsaved_configuration_stops_without_overwriting_or_exposing_values(project, monkeypatch, capsys):
+def test_missing_pat_stops_without_overwriting_or_exposing_values(project, monkeypatch, capsys):
     install = installer()
     path = project / ".env"
     original = "ATLASSIAN_CONFLUENCE_URL=\nATLASSIAN_CONFLUENCE_PAT=\nPRIVATE=sample-secret\n"
     path.write_text(original, encoding="utf-8")
-    monkeypatch.setattr(install.subprocess, "Popen", lambda *a, **k: None)
-    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    monkeypatch.setattr("builtins.input", lambda prompt: "https://wiki.example.invalid/confluence")
     assert not install.ensure_configuration(project)
     assert path.read_text(encoding="utf-8") == original
     assert "sample-secret" not in capsys.readouterr().out
 
 
-def test_user_can_reopen_valid_configuration_to_update_pat(project, monkeypatch):
-    install = installer()
-    path = project / ".env"
-    path.write_text(VALID_CONFIG, encoding="utf-8")
-    updated = VALID_CONFIG.replace("sample-secret", "new-example-token")
-    monkeypatch.setattr(install.subprocess, "Popen", lambda *a, **k: path.write_text(updated, encoding="utf-8"))
-    monkeypatch.setattr("builtins.input", lambda prompt: "")
-    assert install.ensure_configuration(project, edit=True)
-    assert path.read_text(encoding="utf-8") == updated
-
-
-def test_edit_does_not_claim_unsaved_changes_were_saved(project, monkeypatch, capsys):
+def test_edit_retains_configuration_when_both_inputs_are_blank(project, monkeypatch, capsys):
     install = installer()
     path = project / ".env"
     path.write_text(VALID_CONFIG, encoding="utf-8")
     monkeypatch.setattr(install, "PROJECT_ROOT", project)
     monkeypatch.setattr(sys, "argv", ["install.py", "--edit"])
-    monkeypatch.setattr(install.subprocess, "Popen", lambda *a, **k: None)
-    monkeypatch.setattr("builtins.input", lambda prompt: "")
     assert install.main() == 0
     assert path.read_text(encoding="utf-8") == VALID_CONFIG
     output = capsys.readouterr().out
-    assert "配置已保存" not in output
-    assert "确认" in output and "保存" in output
+    assert "已保留现有配置" in output
+    assert "已更新 .env" not in output
+    assert "sample-secret" not in output
 
 
-def test_missing_editor_is_reported_without_overwriting(project, monkeypatch, capsys):
+def test_interrupted_input_is_reported_without_overwriting(project, monkeypatch, capsys):
     install = installer()
     path = project / ".env"
-    original = "ATLASSIAN_CONFLUENCE_URL=\nATLASSIAN_CONFLUENCE_PAT=\n"
+    original = VALID_CONFIG
     path.write_text(original, encoding="utf-8")
 
-    def fail(*args, **kwargs):
-        raise FileNotFoundError("editor unavailable")
+    def interrupt(prompt):
+        raise KeyboardInterrupt
 
-    monkeypatch.setattr(install.subprocess, "Popen", fail)
+    monkeypatch.setattr(getpass, "getpass", interrupt)
     assert not install.ensure_configuration(project)
     assert path.read_text(encoding="utf-8") == original
     assert capsys.readouterr().err
+
+
+@pytest.mark.parametrize("failed_step", ["permissions", "replace"])
+def test_config_write_failure_preserves_original_and_removes_temp_file(project, monkeypatch, capsys, failed_step):
+    install = installer()
+    path = project / ".env"
+    path.write_text(VALID_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: "replacement-token")
+
+    def fail(*args):
+        if failed_step == "permissions":
+            assert args[1].read_bytes() == b""
+        raise OSError("save unavailable")
+
+    if failed_step == "permissions":
+        monkeypatch.setattr(install, "_copy_config_permissions", fail)
+    else:
+        monkeypatch.setattr(install.os, "replace", fail)
+    assert not install.ensure_configuration(project)
+    assert path.read_text(encoding="utf-8") == VALID_CONFIG
+    assert set(project.glob(".env.*")) == {project / ".env.example"}
+    assert "replacement-token" not in capsys.readouterr().err
+
+
+def test_external_config_edit_during_prompt_is_not_overwritten(project, monkeypatch):
+    install = installer()
+    path = project / ".env"
+    path.write_text(VALID_CONFIG, encoding="utf-8")
+    external = VALID_CONFIG + "CONFLUENCE_WRITE_SPACES=OPS\n"
+
+    def edit_during_prompt(prompt):
+        path.write_text(external, encoding="utf-8")
+        return "replacement-token"
+
+    monkeypatch.setattr(getpass, "getpass", edit_during_prompt)
+    assert not install.ensure_configuration(project)
+    assert path.read_text(encoding="utf-8") == external
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows file ACLs")
+@pytest.mark.parametrize("protected", [False, True])
+def test_console_update_preserves_existing_windows_acl(project, monkeypatch, protected):
+    install = installer()
+    path = project / ".env"
+    path.write_text(VALID_CONFIG, encoding="utf-8")
+
+    def icacls(*args):
+        result = subprocess.run(
+            ["icacls.exe", str(path), *args], capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        return result.stdout.strip()
+
+    if protected:
+        icacls("/inheritance:d")
+    before = icacls()
+    assert (b"(I)" not in before) is protected
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: "replacement-token")
+    assert install.ensure_configuration(project)
+    assert icacls() == before
 
 
 def test_installer_imports_without_installed_dependencies(project):

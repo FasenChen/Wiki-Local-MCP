@@ -2,33 +2,128 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 import subprocess
 import sys
+import tempfile
+import warnings
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from confluence_mcp.settings_file import load_env_file
+from confluence_mcp.settings_file import parse_env
 
 
-def _configuration_ready(path: Path) -> bool:
-    try:
-        values = load_env_file(path)
-    except (OSError, ValueError):
-        return False
-    return bool(values.get("ATLASSIAN_CONFLUENCE_URL", "").strip()) and bool(
-        values.get("ATLASSIAN_CONFLUENCE_PAT", "").strip()
+def _env_literal(key: str, value: str) -> str:
+    if "\n" not in value and "\r" not in value:
+        for candidate in (value, f'"{value}"', f"'{value}'"):
+            if parse_env(f"{key}={candidate}").get(key) == value:
+                return candidate
+    raise ValueError("配置值无法安全保存到 .env，请手动编辑。")
+
+
+def _copy_config_permissions(source: Path, destination: Path) -> None:
+    if os.name != "nt":
+        os.chmod(destination, source.stat().st_mode & 0o777)
+        return
+
+    import ctypes
+    from ctypes import wintypes
+
+    security = ctypes.WinDLL("advapi32", use_last_error=True)
+    get_security = security.GetNamedSecurityInfoW
+    get_security.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p),
+    ]
+    get_security.restype = wintypes.DWORD
+    get_control = security.GetSecurityDescriptorControl
+    get_control.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.WORD), ctypes.POINTER(wintypes.DWORD)]
+    get_control.restype = wintypes.BOOL
+    set_security = security.SetNamedSecurityInfoW
+    set_security.argtypes = [
+        wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD,
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+    ]
+    set_security.restype = wintypes.DWORD
+    free = ctypes.WinDLL("kernel32").LocalFree
+    free.argtypes = [ctypes.c_void_p]
+    free.restype = ctypes.c_void_p
+
+    file_object = 1
+    dacl_information = 0x4
+    descriptor = ctypes.c_void_p()
+    dacl = ctypes.c_void_p()
+    error = get_security(
+        str(source), file_object, dacl_information, None, None,
+        ctypes.byref(dacl), None, ctypes.byref(descriptor),
     )
+    if error:
+        raise ctypes.WinError(error)
+    try:
+        control = wintypes.WORD()
+        revision = wintypes.DWORD()
+        if not get_control(descriptor, ctypes.byref(control), ctypes.byref(revision)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        # Keep the original DACL and its inheritance setting before writing the PAT.
+        inheritance = 0x80000000 if control.value & 0x1000 else 0x20000000
+        error = set_security(
+            str(destination), file_object, dacl_information | inheritance, None, None, dacl, None,
+        )
+        if error:
+            raise ctypes.WinError(error)
+    finally:
+        free(descriptor)
+
+
+def _save_configuration(path: Path, original: bytes, changes: dict[str, str]) -> None:
+    text = original.decode("utf-8-sig")
+    literals = {key: _env_literal(key, value) for key, value in changes.items()}
+    seen: set[str] = set()
+    lines: list[str] = []
+    for line in text.splitlines(keepends=True):
+        prefix, separator, _ = line.partition("=")
+        key = prefix.strip()
+        if key.startswith("export "):
+            key = key[len("export "):].lstrip()
+        if separator and not key.startswith("#") and key in literals:
+            ending = line[len(line.rstrip("\r\n")) :]
+            line = f"{prefix}={literals[key]}{ending}"
+            seen.add(key)
+        lines.append(line)
+    result = "".join(lines)
+    newline = "\r\n" if "\r\n" in text else "\n"
+    for key in literals:
+        if key in seen:
+            continue
+        if result and not result.endswith(("\n", "\r")):
+            result += newline
+        result += f"{key}={literals[key]}{newline}"
+    data = result.encode("utf-8-sig" if original.startswith(b"\xef\xbb\xbf") else "utf-8")
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".env.", delete=False) as handle:
+            temporary = Path(handle.name)
+        _copy_config_permissions(path, temporary)
+        temporary.write_bytes(data)
+        if path.read_bytes() != original:
+            raise ValueError("配置文件在输入期间发生变化，请重新运行安装。")
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def ensure_configuration(root: Path, *, edit: bool = False) -> bool:
-    path = root / ".env"
+    path = (root / ".env").resolve()
     if not path.exists():
         try:
             template = (root / ".env.example").read_text(encoding="utf-8-sig")
-            with path.open("x", encoding="utf-8", newline="\n") as output:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
                 output.write(template)
         except FileExistsError:
             pass
@@ -36,20 +131,37 @@ def ensure_configuration(root: Path, *, edit: bool = False) -> bool:
             print("无法创建配置文件，请检查 .env.example 和目录权限。", file=sys.stderr)
             return False
 
-    if edit or not _configuration_ready(path):
-        print("请在打开的 .env 中填写 Wiki 地址和 PAT，保存原文件后返回此窗口。")
-        command = ["notepad.exe", str(path)] if sys.platform == "win32" else ["open", "-t", str(path)]
-        try:
-            subprocess.Popen(command)
-            input("保存后按 Enter 继续：")
-        except (OSError, EOFError, KeyboardInterrupt):
-            print("无法打开或确认配置文件，请检查文本编辑器。", file=sys.stderr)
+    try:
+        original = path.read_bytes()
+        values = parse_env(original.decode("utf-8-sig"))
+        url = values.get("ATLASSIAN_CONFLUENCE_URL", "").strip()
+        pat = values.get("ATLASSIAN_CONFLUENCE_PAT", "").strip()
+        print("更新配置：" if edit else "配置 Wiki 连接：")
+        new_url = input("Wiki 地址（已配置，回车保留）：" if url else "Wiki 地址（必填）：").strip() or url
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            new_pat = getpass.getpass(
+                "PAT（已配置，回车保留；输入不显示）：" if pat else "PAT（必填，输入不显示）："
+            ).strip() or pat
+        if not new_url or not new_pat:
+            print("缺少地址或 PAT，未修改配置。", file=sys.stderr)
             return False
-
-    if not _configuration_ready(path):
-        print("配置未保存或缺少地址/PAT，请检查项目根目录的 .env。", file=sys.stderr)
-        return False
-    return True
+        changes = {}
+        if new_url != url:
+            changes["ATLASSIAN_CONFLUENCE_URL"] = new_url
+        if new_pat != pat:
+            changes["ATLASSIAN_CONFLUENCE_PAT"] = new_pat
+        if changes:
+            _save_configuration(path, original, changes)
+            print("已更新 .env。")
+        else:
+            print("已保留现有配置。")
+        return True
+    except getpass.GetPassWarning:
+        print("当前终端无法隐藏 PAT 输入，请在系统终端中重新运行。", file=sys.stderr)
+    except (OSError, UnicodeError, ValueError, EOFError, KeyboardInterrupt):
+        print("无法读取、输入或保存配置，请检查 .env 和项目目录。", file=sys.stderr)
+    return False
 
 
 def run_install(root: Path) -> int:
@@ -106,7 +218,7 @@ def run_install(root: Path) -> int:
 def main() -> int:
     if sys.argv[1:] == ["--edit"]:
         if ensure_configuration(PROJECT_ROOT, edit=True):
-            print("已读取 .env；如有修改，请确认已保存，再重启 MCP。可重新运行安装检查。")
+            print("配置处理完成，请重启 MCP；可重新运行安装检查。")
             return 0
         return 1
     if sys.argv[1:]:

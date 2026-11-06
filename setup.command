@@ -8,7 +8,7 @@ if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(sy
 fi
 python3 "$ROOT/scripts/install.py"
 status=$?
-printf '\nPress E to edit configuration, or Enter to exit: '
+printf '\nPress E to update configuration, or Enter to exit: '
 IFS= read -r choice || choice=
 case "$choice" in
     e|E) python3 "$ROOT/scripts/install.py" --edit

@@ -2,61 +2,60 @@
 
 面向本地部署的 Atlassian Confluence Data Center 8.5.15 的 MCP 工具。MCP 进程在本机运行，通过 Confluence REST API 访问当前账号有权查看的内容。默认只注册读工具；写工具需要在项目根目录的 `.env` 中显式开启，且默认 `dry_run`。
 
-## 能力
+## 安装和使用
 
-- `search_pages`：按页面正文/标题中的文本查找页面，可限定 Space Key。
-- `get_page`：按 Page ID 读取页面。
-- `get_page_by_title`：按精确标题读取页面；重名时要求提供 Space Key。
-- `cql_search`：直接执行 CQL，支持标签、时间、作者、空间组合查询；返回 excerpt 与分页 `next_start`。
-- `get_page_outline`：只返回 h1–h6 标题树，适合先看结构再决定读哪一节。
-- `get_page` 新增 `section` 与 `max_chars`：按标题只读一节；超长内容截断并返回 `truncated`。
-- `list_spaces`：列出可见的全局 Space，便于找到 `space_key`。
-- `get_comments`：读取页面评论并转 Markdown，保留回复的父评论 ID。
-- `get_children`：读取子页面树，最多 3 层，单次调用总节点上限 200。
-- `get_page_history`：列出版本历史，或对两个版本做 Markdown diff（默认 4000 字符上限）。8.5.15 实测 `/rest/api/content/{id}/version` 可用；不可用时自动回退到 `/rest/experimental`。
-- `create_page` / `add_comment`（需开启写操作）：从 Markdown 创建页面或评论；默认 `dry_run=true` 只返回预览，`dry_run=false` 入队等待人工审批。
-- `update_page` / `update_page_section`（需开启写操作）：整页或单节更新；必须传 `expected_version`，整页 Markdown 更新默认拒绝含宏页面，单节更新只替换目标章节；`dry_run=false` 入队等待人工审批。
-- `move_page`（需开启写操作）：调整页面在页面树中的位置，不修改正文。`position="before"` / `"after"` 把页面放到同级页面 `target_page_id` 的前/后（会随之改到该页面的父页面下）；`position="append"` 把页面移到 `target_page_id` 下作为最后一个子页面。只支持同一空间内移动，不支持移到空间根目录。`dry_run=true` 返回移动前后的同级顺序；`dry_run=false` 入队等待人工审批，批准后调用 `PUT /rest/api/content/{id}/move/{position}/{targetId}`。要排好多个页面，按顺序入队多条移动，批准时按队列顺序执行。
-- `list_queued_operations` / `get_queued_operations` / `cancel_queued_operations` / `get_execution_log`（需开启写操作）：查看自己入队的操作和 diff 预览、撤回尚未审批（`pending`）的操作、读取已结束操作的结果。MCP 无法批准或执行任何操作，也无法撤回已批准的操作。
-- 页面内容可返回 Markdown、Confluence 渲染 HTML 或原始 storage XHTML。
+整个流程是：准备 Python 和 PAT → 解压安装包 → 运行安装脚本并在控制台填写配置 → 接入 Agent → 进行只读查询。
 
-页面 ID 可从页面链接中的 `pageId` 参数，或从 `.../pages/<数字>/...` 路径中取得。也可以先用 `search_pages` 或 `get_page_by_title` 查找页面。
+### 1. 准备环境和 PAT
 
-## 运行环境
+- Windows、macOS 或 Linux，以及 Python 3.10 或更高版本。首次安装依赖时需要能访问 Python 软件源。
+- 可以访问 Confluence 的网络；内网 Wiki 通常需要连接公司网络或 VPN。
+- Confluence Data Center 地址和个人访问令牌（PAT）。令牌沿用所属账号的 Wiki 权限。
 
-- Windows、macOS 或 Linux
-- Python 3.10 或更高版本，使用标准库 `venv` 创建项目虚拟环境
-- MCP Host 与 Confluence 之间可达的网络/VPN 路由
-- Confluence Data Center PAT，且该账号有目标 Space/Page 的读取权限；使用写工具时还需要目标 Space 的编辑权限
+可在终端检查 Python 版本：Windows 运行 `py -3 --version`，若没有 `py` 则尝试 `python --version`；macOS / Linux 运行 `python3 --version`。没有符合版本的 Python 时，请先从 [Python 官网](https://www.python.org/downloads/)或组织提供的软件源安装。
 
-Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GET /rest/api/content/{id}?expand=body.storage,body.view,version,space,ancestors` 完成；搜索通过 `GET /rest/api/content/search` 完成。默认只发起 `GET` 请求；开启写操作后才会发起 `POST` / `PUT`。
+获取 PAT：登录 Confluence，选择右上角头像 → **设置（Settings）** → **个人访问令牌（Personal access tokens）**，创建令牌并在关闭窗口前复制。界面入口可能因组织配置而不同；详见 [Atlassian 官方说明](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html)。
 
-## 安装和认证
+### 2. 获取并解压安装包
 
-### 1. Windows / macOS 一键安装
+获取项目提供的跨平台 ZIP；项目发布后也可从 [GitHub Releases](https://github.com/FasenChen/Wiki-Local-MCP/releases) 下载。将 ZIP 解压到计划长期使用的新目录，例如 Windows 的 `D:\Apps\Wiki-Local-MCP` 或 macOS 的 `/Users/yourname/Apps/Wiki-Local-MCP`。如果发布页没有安装包，请向提供方获取。
 
-先安装 Python 3.10 或更高版本，并准备 Confluence Data Center PAT。首次安装依赖需要访问可用的 Python 软件源；访问内网 Wiki 还需要相应网络或 VPN。
+解压后的目录应能直接看到 `setup.bat`、`setup.command`、`.env.example` 等文件；下文的“项目目录”均指这些文件所在的目录。不要在压缩包内部直接运行安装脚本。
 
-1. 下载发布的跨平台 ZIP，解压到计划长期使用的目录。Windows 双击 `setup.bat`，macOS 双击 `setup.command`。
-2. 如果配置尚未填写，脚本会打开项目根目录的 `.env`。填写以下两项，保存**原文件**，返回安装窗口并按 Enter。地址要带上下文路径（如有），不要加 `/rest/api`：
+### 3. 运行安装脚本并填写配置
 
-   ```text
-   ATLASSIAN_CONFLUENCE_URL=
-   ATLASSIAN_CONFLUENCE_PAT=
-   ```
+**Windows：**双击项目目录中的 `setup.bat`。
 
-3. 脚本创建或复用项目自己的 `.venv`，安装固定版本依赖，并分别检查 MCP 只读工具加载和 Wiki 身份认证。检查只发送读取请求，不创建、修改或评论页面。身份检查成功不代表某个空间有读取或写入权限。
-4. 安装结束时按 Enter 退出；输入 `E` 可重新打开 `.env`，用于以后更新 PAT。更改配置后重启 MCP 和正在运行的审批服务。
+**macOS：**双击项目目录中的 `setup.command`。若提示没有执行权限，在终端运行 `chmod +x "/完整路径/setup.command"` 后重试；如果 macOS 对下载文件显示安全提示，请按组织策略及 [Apple 说明](https://support.apple.com/en-us/102445)处理。
 
-`.env` 在 macOS Finder 中默认隐藏，安装入口可以直接打开它。若解压后 `setup.command` 缺少执行权限，可在终端运行 `chmod +x "/完整路径/setup.command"`；如果 macOS 对下载文件显示安全提示，请按组织策略及 [Apple 说明](https://support.apple.com/en-us/102445)处理。
+按控制台提示填写 Wiki 地址和 PAT：
 
-`.env` 中的 PAT 是明文：不要分享填写后的安装目录，也不要提交文件或将 PAT 发给 Agent。之前保存在系统凭据库中的 PAT 不会删除，但新版不再读取；如旧配置文件没有 PAT，需要自行填写。移动项目目录后，请重新运行安装并更新客户端中的绝对路径；若已有 `.venv` 不可用，脚本会提示处理，不会自动删除。不要在不同电脑或操作系统之间复制 `.venv`。
+```text
+Wiki 地址（必填）：https://wiki.example.com/confluence
+PAT（必填，输入不显示）：
+```
+
+把示例地址替换为自己的地址，并在 PAT 提示后粘贴自己的令牌、按 Enter；**输入时不会显示任何字符**。地址应包含实际的上下文路径（如 `/confluence`），不要附加 `/rest/api`。
+
+如果显示“已配置”，直接按 Enter 保留已有值；输入新值可更新。脚本只更新地址和 PAT，保留 `.env` 中已有的 CA、写入开关、空间配置和其他内容。若终端无法隐藏 PAT 输入，脚本会停止并提示使用系统终端。
+
+配置保存在项目目录的 `.env` 中，也可以自行编辑。macOS 的 Finder 默认隐藏它，可按 `Command + Shift + .` 显示隐藏文件。PAT 是明文保存的，不要分享填写后的目录、提交 `.env` 或把 PAT 发给 Agent。
+
+### 4. 检查安装结果
+
+1. 脚本创建或复用项目内的 `.venv`，安装固定版本依赖，再分别检查 MCP 只读工具加载和 Wiki 身份认证。
+2. 看到 `检查 MCP 工具完成。`、`Confluence authentication succeeded.` 和 `检查 Wiki 认证完成。`，表示这些安装检查已通过。检查只发送读取请求；认证成功不代表账号对所有空间都有权限。
+3. 安装结束时按 Enter 退出。以后需要更新配置时，可重新运行安装脚本，在结束时输入 `E` 重新填写；修改配置后重启 MCP 和正在运行的审批服务，并可重新运行安装检查。
+
+### 升级或移动已有安装
+
+之前保存在系统凭据库中的 PAT 不会删除，但新版不再读取；如旧配置文件没有 PAT，需要自行填写。移动项目目录后，请重新运行安装并更新客户端中的绝对路径；若已有 `.venv` 不可用，脚本会提示处理，不会自动删除。不要在不同电脑或操作系统之间复制 `.venv`。
 
 Windows 路径过深时可能无法创建完整的 `.venv`；请尝试将项目放到较短路径，并自行处理未完成的虚拟环境后重新安装。
 
 升级已有安装时，先备份旧目录的 `.env`，然后将新版 ZIP 解压到新目录，不要覆盖旧目录：ZIP 内自带空白 `.env`，覆盖解压会替换旧配置。将旧 `.env` 复制到新目录，替换空白模板；如旧版本使用系统凭据库，还需自行填写 PAT。macOS 可在 Finder 中按 `Command + Shift + .` 显示隐藏文件。不要复制旧 `.venv`，在新目录运行安装并更新客户端路径；确认新版可用后再处理旧目录。同一用户的队列和审计记录保存在用户主目录的 `.confluence-mcp` 中。
 
-### 2. Linux 手动安装
+### Linux 手动安装
 
 在项目目录中执行，保留已存在的 `.env`：
 
@@ -68,14 +67,15 @@ python3 -m venv .venv
 
 编辑 `.env` 并保存地址和 PAT，再执行 `.venv/bin/python -m confluence_mcp.healthcheck`。需要内部 CA 时，在 `.env` 设置 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`，不要关闭 TLS 验证。上述命令也适用于 macOS；Windows 手动安装时可先运行 `python -m venv .venv`，再使用下方开发命令和 `.env.example`。
 
-### 3. 让 Agent 配置 MCP
+### 5. 让 Agent 配置 MCP
 
-将发布地址和解压后的**本机完整目录**提供给 Agent；发布链接是安装说明，stdio MCP 本身需要本机启动命令。下面的指令可交给 WorkBuddy、DSH、Codex 或 Claude Code：
+将解压后的**本机完整目录**提供给 Agent；stdio MCP 需要使用本机启动命令。下面的指令可交给 WorkBuddy、DSH、Codex 或 Claude Code，使用前替换尖括号中的内容：
 
 ```text
-请按 Wiki MCP 发布页的 README，为当前 Agent 注册已安装的本地 stdio MCP。
-发布地址：https://github.com/FasenChen/Wiki-Local-MCP/releases
-操作系统：<Windows 或 macOS>
+请阅读 MCP 目录中的 README.md，为当前 Agent 注册已安装的本地 stdio MCP。
+项目地址：https://github.com/FasenChen/Wiki-Local-MCP
+操作系统：<Windows、macOS 或 Linux>
+当前 Agent：<WorkBuddy、DSH、Codex 或 Claude Code>
 MCP 目录：<解压后的完整目录>
 
 请保留已有配置，只添加或更新 wiki-local-mcp；不要读取、输出或让我粘贴 .env 内容及 PAT。
@@ -84,7 +84,7 @@ MCP 目录：<解压后的完整目录>
 
 Agent 的文件权限、客户端版本和重启方式可能不同；如果无法自动配置，可使用下面的对应示例。注册成功与实际工具连接成功需要分别检查。
 
-### 4. 手动注册示例
+### 手动注册示例
 
 以下路径只是示例，请替换为自己的解压目录。Windows 的 Python 为 `<目录>\.venv\Scripts\python.exe`，macOS/Linux 为 `<目录>/.venv/bin/python`；参数均为 `-m confluence_mcp.server`。无需配置工作目录，也不要在客户端配置里填写 PAT。
 
@@ -141,13 +141,29 @@ WorkBuddy 用户级配置通常位于 `~/.workbuddy/mcp.json`；其他 JSON 客�
 
 用户级 patch 的位置和插件可用性以所用 DSH 版本为准，参考 [DSH 官方示例](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/mcp-memory.md)。保留其他 patch，重载或重启后检查 `mcp__wiki-local-mcp__` 开头的工具。
 
-### 5. 确认工具
+### 6. 验证并开始使用
 
-在客户端确认 `search_pages`、`get_page`、`get_page_by_title` 已加载，再搜索一个有权限查看的词。安装脚本的认证检查与客户端加载是两项独立检查；工具未出现时先重启客户端并检查本机启动路径。
+在客户端确认 `search_pages`、`get_page`、`get_page_by_title` 已加载。可以在 Agent 中发送下面的请求，把示例词替换为自己有权限查看的内容：
 
-## 本地配置文件 `.env`（可选）
+```text
+请使用 wiki-local-mcp 搜索包含“发布流程”的 Wiki 页面，列出标题和链接；只读，不要修改页面。
+```
+
+Agent 找到页面后，可以继续要求“读取其中的页面并总结主要步骤”。也可以提供页面链接或 Page ID，让 Agent 直接读取。搜索结果只包含 PAT 所属账号有权限查看的内容。
+
+安装脚本的认证检查、客户端加载工具和实际读取目标页面是不同步骤；工具未出现时先重启客户端并检查本机启动路径。默认只启用读取；需要创建或修改页面时，先看下方的[启用写操作与人工审批](#启用写操作与人工审批可选)。
+
+## 本地配置文件 `.env`
 
 MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`）读取地址、PAT、CA、写开关和空间白名单。启动目录、`CONFLUENCE_MCP_ENV_FILE` 及同名进程环境变量不会改变这些设置。
+
+| 配置项 | 是否必填 | 用途 |
+| --- | --- | --- |
+| `ATLASSIAN_CONFLUENCE_URL` | 是 | Wiki 根地址，包含实际上下文路径。 |
+| `ATLASSIAN_CONFLUENCE_PAT` | 是 | 当前账号的 Confluence Data Center PAT。 |
+| `ATLASSIAN_CONFLUENCE_CA_BUNDLE` | 否 | 内部 CA 证书文件路径；TLS 验证保持开启。 |
+| `CONFLUENCE_ENABLE_WRITES` | 否 | 设置为 `true` 后注册写工具；默认关闭。 |
+| `CONFLUENCE_WRITE_SPACES` | 否 | 可写 Space Key，多个用逗号分隔；留空不限制空间。 |
 
 - 文件不存在时按空配置处理，写操作默认关闭；使用连接功能前仍需配置 URL 和 PAT。行尾注释需要 `#` 前有空格，例如 `CONFLUENCE_WRITE_SPACES=OPS # 已批准`。
 - 每个进程首次使用配置时读取一次；修改 `.env` 后需重启 MCP 和正在运行的审批服务。
@@ -211,6 +227,27 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 - 队列数据库有版本号（`PRAGMA user_version`）。遇到不认识的版本或表结构会拒绝打开并报出文件路径，
   不做自动迁移；请先检查或移走该文件。
 
+## 能力
+
+- `search_pages`：按页面正文/标题中的文本查找页面，可限定 Space Key。
+- `get_page`：按 Page ID 读取页面；支持 `section` 按标题只读一节，或用 `max_chars` 截断超长内容。
+- `get_page_by_title`：按精确标题读取页面；重名时要求提供 Space Key。
+- `cql_search`：直接执行 CQL，支持标签、时间、作者、空间组合查询；返回 excerpt 与分页 `next_start`。
+- `get_page_outline`：只返回 h1–h6 标题树，适合先看结构再决定读哪一节。
+- `list_spaces`：列出可见的全局 Space，便于找到 `space_key`。
+- `get_comments`：读取页面评论并转 Markdown，保留回复的父评论 ID。
+- `get_children`：读取子页面树，最多 3 层，单次调用总节点上限 200。
+- `get_page_history`：列出版本历史，或对两个版本做 Markdown diff（默认 4000 字符上限）。8.5.15 实测 `/rest/api/content/{id}/version` 可用；不可用时自动回退到 `/rest/experimental`。
+- `create_page` / `add_comment`（需开启写操作）：从 Markdown 创建页面或评论；默认 `dry_run=true` 只返回预览，`dry_run=false` 入队等待人工审批。
+- `update_page` / `update_page_section`（需开启写操作）：整页或单节更新；必须传 `expected_version`，整页 Markdown 更新默认拒绝含宏页面，单节更新只替换目标章节；`dry_run=false` 入队等待人工审批。
+- `move_page`（需开启写操作）：调整页面在页面树中的位置，不修改正文。`position="before"` / `"after"` 把页面放到同级页面 `target_page_id` 的前/后（会随之改到该页面的父页面下）；`position="append"` 把页面移到 `target_page_id` 下作为最后一个子页面。只支持同一空间内移动，不支持移到空间根目录。`dry_run=true` 返回移动前后的同级顺序；`dry_run=false` 入队等待人工审批，批准后向站点的 `/pages/movepage.action` 发送 POST 请求。要排好多个页面，按顺序入队多条移动，批准时按队列顺序执行。
+- `list_queued_operations` / `get_queued_operations` / `cancel_queued_operations` / `get_execution_log`（需开启写操作）：查看自己入队的操作和 diff 预览、撤回尚未审批（`pending`）的操作、读取已结束操作的结果。MCP 无法批准或执行任何操作，也无法撤回已批准的操作。
+- 页面内容可返回 Markdown、Confluence 渲染 HTML 或原始 storage XHTML。
+
+页面 ID 可从页面链接中的 `pageId` 参数，或从 `.../pages/<数字>/...` 路径中取得。也可以先用 `search_pages` 或 `get_page_by_title` 查找页面。
+
+Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GET /rest/api/content/{id}?expand=body.storage,body.view,version,space,ancestors` 完成；搜索通过 `GET /rest/api/content/search` 完成。默认只发起 `GET` 请求；开启写操作后才会发起 `POST` / `PUT`。
+
 ## 常用调用
 
 - 查找页面：`search_pages(query="发布流程", space_key="OPS", limit=10)`
@@ -237,6 +274,11 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 
 MCP 不会绕过 Confluence 权限；结果只包含 PAT 所属用户能读取的内容。对内网 Confluence 的请求由启动 MCP 的机器发出，因此 Codex 必须运行在能访问公司网络/VPN 的本地环境。把服务器改为远端运行时，远端也必须能访问该内网地址。
 
+- 提示需要 Python：安装 Python 3.10 或更高版本，重新打开终端，再检查命令是否可用。
+- 提示缺少地址或 PAT：重新运行脚本并填写缺少的值；只有对应的值已配置时才能按 Enter 保留。
+- 提示无法隐藏 PAT 输入：在 Windows 终端或 macOS 终端中运行安装脚本，再重新输入；也可以自行编辑项目目录中的 `.env`。
+- 安装依赖失败：检查本机能否访问 Python 软件源、网络代理和组织网络策略，再重新运行安装脚本。
+- Agent 中看不到工具：确认安装检查已完成、客户端配置使用本机 `.venv` 中 Python 的绝对路径，然后重启或重载客户端。
 - `401`：检查 PAT 是否有效/过期。
 - `403`：检查账号对 Space 和页面限制是否有读取权限；写操作还需检查 `CONFLUENCE_WRITE_SPACES` 与 Space 的编辑限制。
 - `404`：检查 Page ID 与根地址上下文路径；无权查看的页面也可能表现为不可用。

@@ -26,7 +26,7 @@ exit /b 1
 %WIKI_PY% %WIKI_PY_ARGS% "%~dp0scripts\install.py"
 set "WIKI_EXIT=%ERRORLEVEL%"
 set "WIKI_CHOICE="
-set /p "WIKI_CHOICE=Press E to edit configuration, or Enter to exit: "
+set /p "WIKI_CHOICE=Press E to update configuration, or Enter to exit: "
 if /I "%WIKI_CHOICE%"=="E" (
     %WIKI_PY% %WIKI_PY_ARGS% "%~dp0scripts\install.py" --edit
     pause
