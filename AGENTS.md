@@ -11,6 +11,9 @@ Run from the repository root with Python 3.10+ and the project's `.venv`. On mac
 - `python -m venv .venv`: create the project virtual environment if it does not exist.
 - `.venv\Scripts\python.exe -m pip install -c constraints.txt -e ".[dev]"`: install the project and development dependencies at pinned versions.
 - `.venv\Scripts\python.exe -m confluence_mcp.server`: start the stdio server, normally managed by an MCP host.
+- `setup.bat` / `./setup.command`: run interactive Windows / macOS setup and read-only connection checks.
+- `.venv\Scripts\python.exe -m confluence_mcp.healthcheck`: check the configured Wiki identity without writes.
+- `.venv\Scripts\python.exe scripts/build_release.py dist/Wiki-Local-MCP.zip`: build a ZIP from the committed snapshot without overwriting an existing file.
 - `.venv\Scripts\python.exe -m pytest`: run the test suite.
 - `.venv\Scripts\python.exe -m pytest tests/test_move_page.py -q`: run focused tests.
 - `.venv\Scripts\python.exe -m pip wheel . --no-deps --wheel-dir dist`: build a wheel distribution in `dist/`.

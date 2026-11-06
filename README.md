@@ -33,76 +33,78 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 
 ## 安装和认证
 
-### 1. 创建虚拟环境并安装
+### 1. Windows / macOS 一键安装
 
-先安装 Python 3.10 或更高版本，并准备具有目标 Space/Page 读取权限的 Confluence Data Center PAT。
-以下 Windows PowerShell 示例假设仓库位于 `D:\Code\Wiki-Local-MCP`，请替换为实际路径：
+先安装 Python 3.10 或更高版本，并准备 Confluence Data Center PAT。首次安装依赖需要访问可用的 Python 软件源；访问内网 Wiki 还需要相应网络或 VPN。
 
-```powershell
-Set-Location D:\Code\Wiki-Local-MCP
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -c constraints.txt -e .
-```
+1. 下载发布的跨平台 ZIP，解压到计划长期使用的目录。Windows 双击 `setup.bat`，macOS 双击 `setup.command`。
+2. 如果配置尚未填写，脚本会打开项目根目录的 `.env`。填写以下两项，保存**原文件**，返回安装窗口并按 Enter。地址要带上下文路径（如有），不要加 `/rest/api`：
 
-`pyproject.toml` 声明依赖范围，`constraints.txt` 固定安装版本；已有 `.venv` 时直接运行安装命令。
-后续命令直接使用虚拟环境中的 Python 或可执行文件，无需激活环境，也无需修改 PowerShell 执行策略。
+   ```text
+   ATLASSIAN_CONFLUENCE_URL=
+   ATLASSIAN_CONFLUENCE_PAT=
+   ```
 
-macOS/Linux 使用：
+3. 脚本创建或复用项目自己的 `.venv`，安装固定版本依赖，并分别检查 MCP 只读工具加载和 Wiki 身份认证。检查只发送读取请求，不创建、修改或评论页面。身份检查成功不代表某个空间有读取或写入权限。
+4. 安装结束时按 Enter 退出；输入 `E` 可重新打开 `.env`，用于以后更新 PAT。更改配置后重启 MCP 和正在运行的审批服务。
+
+`.env` 在 macOS Finder 中默认隐藏，安装入口可以直接打开它。若解压后 `setup.command` 缺少执行权限，可在终端运行 `chmod +x "/完整路径/setup.command"`；如果 macOS 对下载文件显示安全提示，请按组织策略及 [Apple 说明](https://support.apple.com/en-us/102445)处理。
+
+`.env` 中的 PAT 是明文：不要分享填写后的安装目录，也不要提交文件或将 PAT 发给 Agent。之前保存在系统凭据库中的 PAT 不会删除，但新版不再读取；升级时需自行填写 `.env`。移动项目目录后，请重新运行安装并更新客户端中的绝对路径；若已有 `.venv` 不可用，脚本会提示处理，不会自动删除。不要在不同电脑或操作系统之间复制 `.venv`。
+
+### 2. Linux 手动安装
+
+在项目目录中执行，保留已存在的 `.env`：
 
 ```bash
+cp -n .env.example .env
 python3 -m venv .venv
 .venv/bin/python -m pip install -c constraints.txt -e .
 ```
 
-后续示例中的 `.venv\Scripts\python.exe` 对应 `.venv/bin/python`；其他 `.exe` 命令对应 `.venv/bin/` 下的同名命令（不带 `.exe`）。
+编辑 `.env` 并保存地址和 PAT，再执行 `.venv/bin/python -m confluence_mcp.healthcheck`。需要内部 CA 时，在 `.env` 设置 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`，不要关闭 TLS 验证。上述命令也适用于 macOS；Windows 手动安装时可先运行 `python -m venv .venv`，再使用下方开发命令和 `.env.example`。
 
-### 2. 配置 .env
+### 3. 让 Agent 配置 MCP
 
-若项目根目录尚无 `.env`，在该目录执行：
-
-```powershell
-Copy-Item -LiteralPath '.env.example' -Destination '.env'
-```
-
-编辑 `.env`，填写 `ATLASSIAN_CONFLUENCE_URL` 和 `ATLASSIAN_CONFLUENCE_PAT`；内部 CA、写开关和空间白名单按需填写。地址要带上下文路径（如有），不要加 `/rest/api`。PAT 以明文保存在该文件中，不要分享、提交或输出到日志。之前保存在系统凭据库中的 PAT 不会删除，但不再读取，请自行填写到 `.env` 并重启 MCP 和审批服务。
-
-### 3. 注册 MCP 客户端
-
-所有 stdio 客户端直接使用项目虚拟环境中的 Python：
+将发布地址和解压后的**本机完整目录**提供给 Agent；发布链接是安装说明，stdio MCP 本身需要本机启动命令。下面的指令可交给 WorkBuddy、DSH、Codex 或 Claude Code：
 
 ```text
-D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
+请按 Wiki MCP 发布页的 README，为当前 Agent 注册已安装的本地 stdio MCP。
+发布地址：https://github.com/FasenChen/Wiki-Local-MCP/releases
+操作系统：<Windows 或 macOS>
+MCP 目录：<解压后的完整目录>
+
+请保留已有配置，只添加或更新 wiki-local-mcp；不要读取、输出或让我粘贴 .env 内容及 PAT。
+完成后检查 search_pages、get_page 是否出现，说明是否需要重启；不要执行 Wiki 写操作。
 ```
 
-服务从源码项目根目录的 `.env` 读取配置和 PAT，客户端无需指定配置文件路径或工作目录。
+Agent 的文件权限、客户端版本和重启方式可能不同；如果无法自动配置，可使用下面的对应示例。注册成功与实际工具连接成功需要分别检查。
 
-#### Claude Code
+### 4. 手动注册示例
+
+以下路径只是示例，请替换为自己的解压目录。Windows 的 Python 为 `<目录>\.venv\Scripts\python.exe`，macOS/Linux 为 `<目录>/.venv/bin/python`；参数均为 `-m confluence_mcp.server`。无需配置工作目录，也不要在客户端配置里填写 PAT。
+
+#### Codex / Claude Code
+
+Windows PowerShell：
 
 ```powershell
-claude mcp add wiki-local-mcp -- D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
+codex mcp add wiki-local-mcp -- "D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe" -m confluence_mcp.server
+claude mcp add --scope user wiki-local-mcp -- "D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe" -m confluence_mcp.server
 ```
 
-默认写入当前项目；加 `--scope user` 对所有项目生效。用 `claude mcp list` 检查。
+macOS 示例（Linux 请替换为自己的项目目录）：
 
-#### Codex
-
-```powershell
-codex mcp add wiki-local-mcp -- D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
+```bash
+codex mcp add wiki-local-mcp -- "/Users/yourname/Wiki-Local-MCP/.venv/bin/python" -m confluence_mcp.server
+claude mcp add --scope user wiki-local-mcp -- "/Users/yourname/Wiki-Local-MCP/.venv/bin/python" -m confluence_mcp.server
 ```
 
-也可手写 `%USERPROFILE%\.codex\config.toml`：
+使用 `codex mcp list` 或 `claude mcp list` 查看注册状态。Claude Code 的 `--scope user` 为用户级；若只需当前项目，请按客户端文档选择相应作用域。
 
-```toml
-[mcp_servers.wiki-local-mcp]
-command = "D:\\Code\\Wiki-Local-MCP\\.venv\\Scripts\\python.exe"
-args = ["-m", "confluence_mcp.server"]
-startup_timeout_sec = 20
-tool_timeout_sec = 60
-```
+#### WorkBuddy 和其他 JSON 客户端
 
-保留文件已有内容，不要覆盖整个文件。
-
-#### JSON 客户端（Claude Desktop、Cursor、WorkBuddy、Windsurf、Cline 等）
+WorkBuddy 可通过 **插件 → MCP 服务器 → 配置 MCP** 添加。以下是 Windows 示例；macOS 将 `command` 替换为 `/Users/yourname/Wiki-Local-MCP/.venv/bin/python`：
 
 ```json
 {
@@ -116,45 +118,28 @@ tool_timeout_sec = 60
 }
 ```
 
-WorkBuddy：通过 **Plugins → MCP Server → Configure MCP** 添加，或写入 `~/.workbuddy/mcp.json`（部分版本为 `~/.workbuddy-ai/mcp.json`）；`type` 可省略。
+WorkBuddy 用户级配置通常位于 `~/.workbuddy/mcp.json`；其他 JSON 客户端的配置位置请参照其文档。合并新条目，保留原有配置。
 
 #### DeepSeek Harness
 
-DSH 把每个服务器配置成 `@deepseek-ai/dsh-mcp-client` 插件实例，写在 profile patch（如 `cordis.patch.yml`）里：
+按当前 profile 的 `cordis.patch.yml` 合并以下 `insert`；示例使用 Windows 路径，macOS 替换为对应 `.venv/bin/python`：
 
 ```yaml
-- id: mcp-confluence
-  name: '@deepseek-ai/dsh-mcp-client'
-  config:
-    serverName: wiki-local-mcp
-    transport: stdio
-    command: 'D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe'
-    args: ['-m', 'confluence_mcp.server']
+- insert:
+    - id: mcp-confluence
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: wiki-local-mcp
+        transport: stdio
+        command: 'D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe'
+        args: ['-m', 'confluence_mcp.server']
 ```
 
-`serverName` 只能包含字母、数字、`_`、`-`，工具显示为 `mcp__wiki-local-mcp__<工具名>`。
+用户级 patch 的位置和插件可用性以所用 DSH 版本为准，参考 [DSH 官方示例](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/mcp-memory.md)。保留其他 patch，重载或重启后检查 `mcp__wiki-local-mcp__` 开头的工具。
 
-#### 其他客户端
+### 5. 确认工具
 
-选择 stdio / command 类型，填入上面的 `command`、`args`；不需要单独配置 cwd。
-
-### 4. 确认连接
-
-确认工具列表出现 `search_pages`、`get_page`、`get_page_by_title`，调用 `search_pages` 搜索一个有权限查看的词。MCP 运行机器必须能访问 Confluence。
-
-若公司使用内部 CA，在项目根目录的 `.env` 中设置 `ATLASSIAN_CONFLUENCE_CA_BUNDLE=<证书路径>`；不要关闭 TLS 验证。
-
-### 5. 让 AI 代理安装（可选）
-
-把下面这段话交给 Claude Code / Codex：
-
-```text
-按 https://github.com/FasenChen/Wiki-Local-MCP 的 README 安装并注册 Confluence MCP。
-
-先问我：MCP 客户端、仓库绝对路径、Confluence 根地址。
-然后：确认 Python 3.10+ → 克隆仓库并用 `python -m venv .venv` 创建环境 → 用该环境的 Python 执行 `-m pip install -c constraints.txt -e .` → 请我自己按示例在项目根目录的 `.env` 中配置地址和 PAT → 按 README 第 3 节对应客户端注册（别名 wiki-local-mcp）→ 重启并调用 search_pages 验证。
-不要读取或让我粘贴 PAT；改配置前先备份，完成后说明改了哪个文件、如何回滚。
-```
+在客户端确认 `search_pages`、`get_page`、`get_page_by_title` 已加载，再搜索一个有权限查看的词。安装脚本的认证检查与客户端加载是两项独立检查；工具未出现时先重启客户端并检查本机启动路径。
 
 ## 本地配置文件 `.env`（可选）
 
