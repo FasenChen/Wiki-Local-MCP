@@ -38,14 +38,21 @@ _DROP = {
 }
 _TRANSPARENT = {"ac:rich-text-body", "ac:plain-text-body", "ac:link-body", "ac:plain-text-link-body"}
 _CSS = (
-    "body{margin:16px;font:14px/1.6 system-ui,'Microsoft YaHei',sans-serif;color:#111;background:#fff;overflow-wrap:anywhere}"
-    "h1,h2,h3,h4,h5,h6{line-height:1.3}"
-    "table{border-collapse:collapse;margin:8px 0}td,th{border:1px solid #bbb;padding:4px 8px;vertical-align:top}"
-    "pre{background:#f4f4f5;padding:10px;border-radius:6px;overflow:auto;white-space:pre-wrap;word-break:break-word}"
+    "*{box-sizing:border-box}"
+    "body{margin:0;padding:30px 38px;font:14px/1.9 system-ui,'Microsoft YaHei',sans-serif;color:#18263e;background:#fff;overflow-wrap:anywhere}"
+    "h1,h2,h3,h4,h5,h6{line-height:1.5;font-weight:650}"
+    "h1{font-size:25px;margin:0 0 16px}h2{font-size:18px;margin:26px 0 10px}h3{font-size:16px}"
+    "p{margin:12px 0}li{margin:6px 0}"
+    "table{border-collapse:collapse;margin:14px 0;max-width:100%;font-size:13px}"
+    "td,th{border:1px solid #dfe5ee;padding:9px 13px;vertical-align:top;text-align:left}"
+    "th{background:#f6f8fb;color:#52627a;font-weight:600}"
+    "blockquote{margin:18px 0;padding:8px 14px;border-left:3px solid #a7bce7;background:#f4f7fc;color:#506789}"
+    "pre{background:#f4f6fa;padding:14px;border-radius:6px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}"
     "code{font-family:Consolas,monospace}img{max-width:100%;height:auto}"
-    ".cap{font-size:12px;color:#555}.url{color:#666;font-size:12px}"
+    ".cap{font-size:12px;color:#52627a}.url{color:#627086;font-size:12px}"
     ".unsupported{color:#92400e;background:#fef3c7;padding:0 4px;border-radius:3px}"
     ".unsupported-block{border-left:3px solid #d97706;padding:4px 8px;margin:8px 0;color:#92400e}"
+    "@media(max-width:500px){body{padding:22px 20px}h1{font-size:22px}td,th{padding:7px 9px}}"
 )
 
 
