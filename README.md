@@ -2,6 +2,16 @@
 
 面向本地部署的 Atlassian Confluence Data Center 8.5.15 的 MCP 工具。MCP 进程在本机运行，通过 Confluence REST API 访问当前账号有权查看的内容。默认只注册读工具；写工具需要在项目根目录的 `.env` 中显式开启，且默认 `dry_run`。
 
+当前版本：**V1.0.0**（2026-11-06）
+
+V1.0 首个稳定发布包含：
+
+- Windows、macOS 和 Linux 的安装引导、虚拟环境创建、依赖安装及只读 Wiki 身份检查。
+- 从项目根目录 `.env` 读取 Wiki 地址、PAT、CA 和写入开关，默认关闭写工具并保留人工审批流程。
+- 为 Codex、Claude Code、WorkBuddy 和 DeepSeek Harness 生成 Agent 接入文档，并提供手动注册示例。
+- 支持 Markdown 图片上传、Confluence 附件引用、页面/章节更新、评论、移动页面、历史版本和 Markdown diff。
+- 提供本地审批队列、命令行审批、网页审批入口，以及基于已提交快照构建跨平台 ZIP 发布包。
+
 ## 安装和使用
 
 整个流程是：准备 Python 和 PAT → 解压安装包 → 运行安装脚本并在控制台填写配置 → 接入 Agent → 进行只读查询。
