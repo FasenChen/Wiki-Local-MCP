@@ -81,6 +81,12 @@ class ConfluenceClient:
         )
         self._base_url = settings.base_url
 
+    def close(self) -> None:
+        self._client.close()
+
+    def get_current_user(self) -> dict[str, Any]:
+        return self._get_json("user/current", params={})
+
     def _validate_page_id(self, page_id: str) -> None:
         if not re.fullmatch(r"[0-9]+", page_id):
             raise ValueError("page_id must contain only digits.")
