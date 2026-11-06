@@ -88,6 +88,26 @@ def test_timeout_is_reported_and_client_is_closed(settings, transport_client):
     assert clients[0].is_closed
 
 
+def test_connection_reset_is_reported_without_exposing_error(config_values, transport_client, capsys):
+    from confluence_mcp.healthcheck import main
+
+    config_values.update({
+        "ATLASSIAN_CONFLUENCE_URL": "https://wiki.example.invalid/confluence",
+        "ATLASSIAN_CONFLUENCE_PAT": "sample-secret",
+    })
+
+    def reset(request):
+        raise httpx.ReadError("sample-secret private-network-details", request=request)
+
+    clients = transport_client(reset)
+    assert main() == 1
+    captured = capsys.readouterr()
+    assert "Confluence" in captured.err
+    assert "sample-secret" not in captured.out + captured.err
+    assert "private-network-details" not in captured.out + captured.err
+    assert clients[0].is_closed
+
+
 def test_non_json_is_rejected_without_printing_response(settings, transport_client):
     from confluence_mcp.healthcheck import verify_wiki_connection
 

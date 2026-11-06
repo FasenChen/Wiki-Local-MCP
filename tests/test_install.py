@@ -78,6 +78,21 @@ def test_user_can_reopen_valid_configuration_to_update_pat(project, monkeypatch)
     assert path.read_text(encoding="utf-8") == updated
 
 
+def test_edit_does_not_claim_unsaved_changes_were_saved(project, monkeypatch, capsys):
+    install = installer()
+    path = project / ".env"
+    path.write_text(VALID_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(install, "PROJECT_ROOT", project)
+    monkeypatch.setattr(sys, "argv", ["install.py", "--edit"])
+    monkeypatch.setattr(install.subprocess, "Popen", lambda *a, **k: None)
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    assert install.main() == 0
+    assert path.read_text(encoding="utf-8") == VALID_CONFIG
+    output = capsys.readouterr().out
+    assert "配置已保存" not in output
+    assert "确认" in output and "保存" in output
+
+
 def test_missing_editor_is_reported_without_overwriting(project, monkeypatch, capsys):
     install = installer()
     path = project / ".env"

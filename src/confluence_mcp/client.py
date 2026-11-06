@@ -244,6 +244,8 @@ class ConfluenceClient:
             raise ConfluenceAPIError(
                 "Could not connect to Confluence. Check the URL, network/VPN, and TLS CA settings."
             ) from exc
+        except httpx.RequestError as exc:
+            raise ConfluenceAPIError("Confluence network request failed. Check the network/VPN.") from exc
 
         if response.is_redirect:
             raise ConfluenceAPIError(

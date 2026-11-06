@@ -106,7 +106,7 @@ def run_install(root: Path) -> int:
 def main() -> int:
     if sys.argv[1:] == ["--edit"]:
         if ensure_configuration(PROJECT_ROOT, edit=True):
-            print("配置已保存，请重启 MCP；可重新运行安装检查。")
+            print("已读取 .env；如有修改，请确认已保存，再重启 MCP。可重新运行安装检查。")
             return 0
         return 1
     if sys.argv[1:]:

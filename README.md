@@ -50,9 +50,11 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 
 `.env` 在 macOS Finder 中默认隐藏，安装入口可以直接打开它。若解压后 `setup.command` 缺少执行权限，可在终端运行 `chmod +x "/完整路径/setup.command"`；如果 macOS 对下载文件显示安全提示，请按组织策略及 [Apple 说明](https://support.apple.com/en-us/102445)处理。
 
-`.env` 中的 PAT 是明文：不要分享填写后的安装目录，也不要提交文件或将 PAT 发给 Agent。之前保存在系统凭据库中的 PAT 不会删除，但新版不再读取；升级时需自行填写 `.env`。移动项目目录后，请重新运行安装并更新客户端中的绝对路径；若已有 `.venv` 不可用，脚本会提示处理，不会自动删除。不要在不同电脑或操作系统之间复制 `.venv`。
+`.env` 中的 PAT 是明文：不要分享填写后的安装目录，也不要提交文件或将 PAT 发给 Agent。之前保存在系统凭据库中的 PAT 不会删除，但新版不再读取；如旧配置文件没有 PAT，需要自行填写。移动项目目录后，请重新运行安装并更新客户端中的绝对路径；若已有 `.venv` 不可用，脚本会提示处理，不会自动删除。不要在不同电脑或操作系统之间复制 `.venv`。
 
 Windows 路径过深时可能无法创建完整的 `.venv`；请尝试将项目放到较短路径，并自行处理未完成的虚拟环境后重新安装。
+
+升级已有安装时，先备份旧目录的 `.env`，然后将新版 ZIP 解压到新目录，不要覆盖旧目录：ZIP 内自带空白 `.env`，覆盖解压会替换旧配置。将旧 `.env` 复制到新目录，替换空白模板；如旧版本使用系统凭据库，还需自行填写 PAT。macOS 可在 Finder 中按 `Command + Shift + .` 显示隐藏文件。不要复制旧 `.venv`，在新目录运行安装并更新客户端路径；确认新版可用后再处理旧目录。同一用户的队列和审计记录保存在用户主目录的 `.confluence-mcp` 中。
 
 ### 2. Linux 手动安装
 
@@ -163,6 +165,7 @@ CONFLUENCE_WRITE_SPACES=OPS,QA   # 可选；不设置表示不限制空间
 所有写工具默认 `dry_run=true`：只返回将要发生的变更（目标、storage 预览）。
 传 `dry_run=false` 不会写入 Confluence，而是把最终请求 payload 存入本地队列
 `%USERPROFILE%\.confluence-mcp\queue.sqlite3`，状态为 `pending`。
+macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 
 流程：
 
@@ -180,6 +183,7 @@ CONFLUENCE_WRITE_SPACES=OPS,QA   # 可选；不设置表示不限制空间
      需输入 `yes`，确认后立即写入。
 
    `.\.venv\Scripts\confluence-mcp-review.exe`（等同 `list`）查看队列；`reject <id>` 可随时拒绝，无需交互式终端。
+   macOS / Linux 将上述命令的 `.\.venv\Scripts\confluence-mcp-review.exe` 替换为 `./.venv/bin/confluence-mcp-review`，参数相同。
    `web` 和 `approve` 都要求设置 `CONFLUENCE_ENABLE_WRITES=true`。
 3. 批准即写入：每条操作最多发送一次，失败不自动重试。原来的 `apply_approved_operations` 工具已移除。
    Agent 可以用 `list_queued_operations` 看队列，用 `cancel_queued_operations` 撤回尚未审批的操作。
@@ -196,7 +200,7 @@ CONFLUENCE_WRITE_SPACES=OPS,QA   # 可选；不设置表示不限制空间
 409，该操作变为 `failed`，不会覆盖新版本。
 
 成功执行的写入会追加到 `%USERPROFILE%\.confluence-mcp\audit.log`
-（JSON Lines，不含页面正文和 PAT）。
+（macOS / Linux 为 `~/.confluence-mcp/audit.log`；JSON Lines，不含页面正文和 PAT）。
 
 已知边界：
 

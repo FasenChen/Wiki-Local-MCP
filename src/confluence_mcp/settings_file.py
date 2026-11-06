@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 PROJECT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
-_COMMENT = re.compile(r"(?:^|\s)#")
+_COMMENT = re.compile(r"\s#")
 _SETTING_KEYS = {
     "ATLASSIAN_CONFLUENCE_URL",
     "ATLASSIAN_CONFLUENCE_PAT",
@@ -24,8 +24,8 @@ def _value(raw: str) -> str:
         if end != -1:
             return value[1:end]
     # shortcut: "#" starts a comment only after whitespace, so URL fragments survive unquoted.
-    match = _COMMENT.search(value)
-    return (value[: match.start()] if match else value).strip()
+    match = _COMMENT.search(raw)
+    return (raw[: match.start()] if match else raw).strip()
 
 
 def parse_env(text: str) -> dict[str, str]:

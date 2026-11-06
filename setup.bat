@@ -29,5 +29,6 @@ set "WIKI_CHOICE="
 set /p "WIKI_CHOICE=Press E to edit configuration, or Enter to exit: "
 if /I "%WIKI_CHOICE%"=="E" (
     %WIKI_PY% %WIKI_PY_ARGS% "%~dp0scripts\install.py" --edit
+    pause
 )
 exit /b %WIKI_EXIT%

@@ -11,6 +11,8 @@ status=$?
 printf '\nPress E to edit configuration, or Enter to exit: '
 IFS= read -r choice || choice=
 case "$choice" in
-    e|E) python3 "$ROOT/scripts/install.py" --edit ;;
+    e|E) python3 "$ROOT/scripts/install.py" --edit
+         printf 'Press Enter to close: '
+         IFS= read -r _ ;;
 esac
 exit "$status"

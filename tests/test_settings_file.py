@@ -68,6 +68,12 @@ def test_hash_without_leading_space_is_part_of_value():
     }
 
 
+def test_pat_starting_with_hash_is_not_a_comment():
+    assert parse_env("ATLASSIAN_CONFLUENCE_PAT=#sample==\n") == {
+        "ATLASSIAN_CONFLUENCE_PAT": "#sample=="
+    }
+
+
 def test_pat_is_loaded_and_unknown_keys_are_excluded(tmp_path, monkeypatch):
     path = tmp_path / ".env"
     path.write_text(
