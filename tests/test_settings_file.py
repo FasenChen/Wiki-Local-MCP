@@ -68,7 +68,7 @@ def test_hash_without_leading_space_is_part_of_value():
     }
 
 
-def test_pat_and_unknown_keys_are_excluded(tmp_path, monkeypatch):
+def test_pat_is_loaded_and_unknown_keys_are_excluded(tmp_path, monkeypatch):
     path = tmp_path / ".env"
     path.write_text(
         "ATLASSIAN_CONFLUENCE_PAT=file-token\n"
@@ -80,5 +80,8 @@ def test_pat_and_unknown_keys_are_excluded(tmp_path, monkeypatch):
         monkeypatch.setenv(key, "")
         monkeypatch.delenv(key)
     before = dict(os.environ)
-    assert settings_file.load_env_file(path) == {"CONFLUENCE_WRITE_SPACES": "OPS"}
+    assert settings_file.load_env_file(path) == {
+        "ATLASSIAN_CONFLUENCE_PAT": "file-token",
+        "CONFLUENCE_WRITE_SPACES": "OPS",
+    }
     assert dict(os.environ) == before

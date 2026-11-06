@@ -30,4 +30,4 @@ History includes unscoped (`docs: ...`) and scoped (`fix(config): ...`) messages
 
 ## Security & Configuration
 
-Use the source project root's `.env` for nonsecret settings, based on `.env.example`. Process environment variables do not supply Confluence settings. PATs are read only from the current user's operating-system credential store; save them with `.venv\Scripts\confluence-mcp-store-pat.exe`. Never commit credentials, private page content, or runtime queue/audit files. Preserve `dry_run=true` defaults, version checks, and human approval: `dry_run=false` only queues writes. Agents must not bypass interactive review.
+Use the source project root's `.env` for Confluence settings and PAT, based on `.env.example`. Process environment variables do not supply these settings. The PAT is plaintext in `.env`: never read or output the user's token, and never commit credentials, private page content, or runtime queue/audit files. Preserve `dry_run=true` defaults, version checks, and human approval: `dry_run=false` only queues writes. Agents must not bypass interactive review.

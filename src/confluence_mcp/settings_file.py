@@ -10,6 +10,7 @@ PROJECT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 _COMMENT = re.compile(r"(?:^|\s)#")
 _SETTING_KEYS = {
     "ATLASSIAN_CONFLUENCE_URL",
+    "ATLASSIAN_CONFLUENCE_PAT",
     "ATLASSIAN_CONFLUENCE_CA_BUNDLE",
     "CONFLUENCE_ENABLE_WRITES",
     "CONFLUENCE_WRITE_SPACES",

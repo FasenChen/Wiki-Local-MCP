@@ -56,15 +56,7 @@ python3 -m venv .venv
 
 后续示例中的 `.venv\Scripts\python.exe` 对应 `.venv/bin/python`；其他 `.exe` 命令对应 `.venv/bin/` 下的同名命令（不带 `.exe`）。
 
-### 2. 保存 PAT 并配置 .env
-
-```powershell
-.\.venv\Scripts\confluence-mcp-store-pat.exe
-```
-
-在隐藏输入提示中粘贴 PAT，保存到当前系统用户的凭据库。PAT 仅从系统凭据库读取，不支持通过进程环境变量或 `.env` 提供。
-
-如果之前仅通过环境变量提供 PAT，请先运行上述命令保存凭据，再重启 MCP。保存凭据和运行 MCP 必须使用同一系统用户。
+### 2. 配置 .env
 
 若项目根目录尚无 `.env`，在该目录执行：
 
@@ -72,7 +64,7 @@ python3 -m venv .venv
 Copy-Item -LiteralPath '.env.example' -Destination '.env'
 ```
 
-编辑 `.env`，填写 `ATLASSIAN_CONFLUENCE_URL`；内部 CA、写开关和空间白名单按需填写。地址要带上下文路径（如有），不要加 `/rest/api`。原先通过客户端环境变量提供这些配置的用户，请先将其迁入项目根目录的 `.env`，再启用新版本并重启 MCP 和审批服务。
+编辑 `.env`，填写 `ATLASSIAN_CONFLUENCE_URL` 和 `ATLASSIAN_CONFLUENCE_PAT`；内部 CA、写开关和空间白名单按需填写。地址要带上下文路径（如有），不要加 `/rest/api`。PAT 以明文保存在该文件中，不要分享、提交或输出到日志。之前保存在系统凭据库中的 PAT 不会删除，但不再读取，请自行填写到 `.env` 并重启 MCP 和审批服务。
 
 ### 3. 注册 MCP 客户端
 
@@ -82,7 +74,7 @@ Copy-Item -LiteralPath '.env.example' -Destination '.env'
 D:\Code\Wiki-Local-MCP\.venv\Scripts\python.exe -m confluence_mcp.server
 ```
 
-服务从源码项目根目录的 `.env` 读取普通配置，客户端无需指定配置文件路径或工作目录。
+服务从源码项目根目录的 `.env` 读取配置和 PAT，客户端无需指定配置文件路径或工作目录。
 
 #### Claude Code
 
@@ -160,15 +152,15 @@ DSH 把每个服务器配置成 `@deepseek-ai/dsh-mcp-client` 插件实例，写
 按 https://github.com/FasenChen/Wiki-Local-MCP 的 README 安装并注册 Confluence MCP。
 
 先问我：MCP 客户端、仓库绝对路径、Confluence 根地址。
-然后：确认 Python 3.10+ → 克隆仓库并用 `python -m venv .venv` 创建环境 → 用该环境的 Python 执行 `-m pip install -c constraints.txt -e .` → 在项目根目录按示例配置 `.env` → 把虚拟环境中的 `confluence-mcp-store-pat` 命令给我自己运行 → 按 README 第 3 节对应客户端注册（别名 wiki-local-mcp）→ 重启并调用 search_pages 验证。
+然后：确认 Python 3.10+ → 克隆仓库并用 `python -m venv .venv` 创建环境 → 用该环境的 Python 执行 `-m pip install -c constraints.txt -e .` → 请我自己按示例在项目根目录的 `.env` 中配置地址和 PAT → 按 README 第 3 节对应客户端注册（别名 wiki-local-mcp）→ 重启并调用 search_pages 验证。
 不要读取或让我粘贴 PAT；改配置前先备份，完成后说明改了哪个文件、如何回滚。
 ```
 
 ## 本地配置文件 `.env`（可选）
 
-MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`）读取地址、CA、写开关和空间白名单。启动目录、`CONFLUENCE_MCP_ENV_FILE` 及同名进程环境变量不会改变这些设置；PAT 仅从当前系统用户的凭据库读取。
+MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`）读取地址、PAT、CA、写开关和空间白名单。启动目录、`CONFLUENCE_MCP_ENV_FILE` 及同名进程环境变量不会改变这些设置。
 
-- 文件不存在时按空配置处理，写操作默认关闭；使用连接功能前仍需配置 URL。行尾注释需要 `#` 前有空格，例如 `CONFLUENCE_WRITE_SPACES=OPS # 已批准`。
+- 文件不存在时按空配置处理，写操作默认关闭；使用连接功能前仍需配置 URL 和 PAT。行尾注释需要 `#` 前有空格，例如 `CONFLUENCE_WRITE_SPACES=OPS # 已批准`。
 - 每个进程首次使用配置时读取一次；修改 `.env` 后需重启 MCP 和正在运行的审批服务。
 - 此定位方式适用于上述源码／可编辑安装。脱离源码的普通 wheel 安装没有本方案定义的项目根目录，需另行约定配置位置。
 
@@ -260,7 +252,7 @@ MCP 不会绕过 Confluence 权限；结果只包含 PAT 所属用户能读取�
 - TLS/连接错误：检查 VPN、DNS、代理与 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`。
 - 重定向错误：确认 `ATLASSIAN_CONFLUENCE_URL` 指向实际 Confluence 根地址，而非登录页、反向代理跳转地址或 `/rest/api`。
 
-如果配置没生效，检查源码项目根目录的 `.env` 及其中的配置值，然后重启 MCP 和审批服务。不要把 PAT、密码或公司页面内容写入仓库文件、提交到 GitHub 或输出到日志；PAT 仅从当前系统用户的凭据库读取。
+如果配置没生效，检查源码项目根目录的 `.env` 及其中的配置值，然后重启 MCP 和审批服务。不要把 PAT、密码或公司页面内容提交到 GitHub 或输出到日志；`.env` 包含明文 PAT，不要分享。
 
 ## 开发
 

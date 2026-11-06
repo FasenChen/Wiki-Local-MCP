@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
-import keyring
 
 from . import settings_file
-from .credentials import KEYRING_SERVICE, KEYRING_USERNAME
 
 
 # Tool positions -> the values the Confluence move dialog posts to movepage.action.
@@ -34,7 +32,7 @@ class ConfluenceAPIError(RuntimeError):
 @dataclass(frozen=True)
 class ConfluenceSettings:
     base_url: str
-    pat: str
+    pat: str = field(repr=False)
     ca_bundle: str | None
 
     @classmethod
@@ -58,17 +56,10 @@ class ConfluenceSettings:
             )
         normalized_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
-        try:
-            pat = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
-        except Exception as exc:
-            raise ConfluenceConfigurationError(
-                "Could not read the operating-system credential store. Save a PAT with "
-                "`confluence-mcp-store-pat` from the project's virtual environment."
-            ) from exc
+        pat = settings.get("ATLASSIAN_CONFLUENCE_PAT", "").strip()
         if not pat:
             raise ConfluenceConfigurationError(
-                "No Confluence PAT found. Save one with `confluence-mcp-store-pat` "
-                "from the project's virtual environment."
+                "Set ATLASSIAN_CONFLUENCE_PAT in the project root .env."
             )
 
         ca_bundle = settings.get("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "").strip() or None

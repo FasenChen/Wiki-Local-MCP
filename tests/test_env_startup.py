@@ -78,3 +78,53 @@ def test_missing_project_env_cannot_use_inherited_write_flag(project_process):
     actual = json.loads(result.stdout)
     assert "create_page" not in actual["tools"]
     assert actual["enabled_after_change"] is False
+
+
+@pytest.mark.parametrize("file_pat", [None, "file#token=="])
+def test_pat_is_read_only_from_project_file_in_a_fresh_process(tmp_path, file_pat):
+    project = tmp_path / "project"
+    source_root = project / "src"
+    shutil.copytree(
+        Path(settings_file.__file__).resolve().parent,
+        source_root / "confluence_mcp",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".env", ".env.*"),
+    )
+    config = "ATLASSIAN_CONFLUENCE_URL=https://wiki.example.invalid/confluence\n"
+    if file_pat is not None:
+        config += f"ATLASSIAN_CONFLUENCE_PAT={file_pat}\n"
+    (project / ".env").write_text(config, encoding="utf-8")
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / ".env").write_text("ATLASSIAN_CONFLUENCE_PAT=cwd-token\n", encoding="utf-8")
+    legacy = tmp_path / "legacy.env"
+    legacy.write_text("ATLASSIAN_CONFLUENCE_PAT=legacy-token\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.update({
+        "ATLASSIAN_CONFLUENCE_PAT": "process-token",
+        "CONFLUENCE_MCP_ENV_FILE": str(legacy),
+        "PYTHONPATH": str(source_root),
+    })
+    program = (
+        "import json, sys, types\n"
+        "keyring = types.ModuleType('keyring')\n"
+        "keyring.get_password = lambda *_: 'stored-token'\n"
+        "sys.modules['keyring'] = keyring\n"
+        "from confluence_mcp.client import ConfluenceConfigurationError, ConfluenceSettings\n"
+        "try:\n"
+        "    settings = ConfluenceSettings.from_environment()\n"
+        "    result = {'file_token': settings.pat == 'file#token==', 'missing': False}\n"
+        "except ConfluenceConfigurationError:\n"
+        "    result = {'file_token': False, 'missing': True}\n"
+        "print(json.dumps(result))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", program],
+        cwd=other,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"file_token": file_pat is not None, "missing": file_pat is None}
