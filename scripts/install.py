@@ -69,7 +69,7 @@ def run_install(root: Path) -> int:
         try:
             subprocess.run([sys.executable, "-m", "venv", str(venv)], cwd=root, check=True, env=child_env)
         except (OSError, subprocess.CalledProcessError):
-            print("创建虚拟环境失败，请检查 Python 安装。", file=sys.stderr)
+            print("创建虚拟环境失败，请检查 Python 或尝试较短路径；现有 .venv 未自动删除。", file=sys.stderr)
             return 1
     if not venv_python.is_file():
         print("现有虚拟环境不可用；请检查项目目录中的 .venv。", file=sys.stderr)
@@ -91,11 +91,13 @@ def run_install(root: Path) -> int:
         print(f"{label}...", flush=True)
         try:
             subprocess.run(command, cwd=root, check=True, env=child_env)
-        except OSError:
-            print(f"{label}无法启动，请检查 Python 和项目路径。", file=sys.stderr)
-            return 1
-        except subprocess.CalledProcessError as exc:
-            print(f"{label}失败（退出码 {exc.returncode}）。", file=sys.stderr)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            if label == "检查 pip":
+                print("检查 pip 失败，.venv 可能不完整；请检查或尝试较短路径，脚本不会删除 .venv。", file=sys.stderr)
+            elif isinstance(exc, subprocess.CalledProcessError):
+                print(f"{label}失败（退出码 {exc.returncode}）。", file=sys.stderr)
+            else:
+                print(f"{label}无法启动，请检查 Python 和项目路径。", file=sys.stderr)
             return 1
         print(f"{label}完成。")
     return 0

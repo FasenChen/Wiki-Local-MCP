@@ -156,6 +156,39 @@ def test_invalid_existing_venv_is_not_deleted(project, monkeypatch):
     assert marker.read_text(encoding="utf-8") == "keep"
 
 
+def test_venv_creation_failure_preserves_partial_data_and_mentions_shorter_path(project, monkeypatch, capsys):
+    install = installer()
+    (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
+    marker = project / ".venv" / "keep.txt"
+
+    def fail(command, *, cwd, check, env):
+        marker.parent.mkdir()
+        marker.write_text("keep", encoding="utf-8")
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(install.subprocess, "run", fail)
+    assert install.run_install(project) == 1
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert "较短路径" in capsys.readouterr().err
+
+
+def test_broken_pip_reports_path_guidance_without_deleting_venv(project, monkeypatch, capsys):
+    install = installer()
+    (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
+    parts = ("Scripts", "python.exe") if sys.platform == "win32" else ("bin", "python")
+    venv_python = project / ".venv" / Path(*parts)
+    venv_python.parent.mkdir(parents=True)
+    venv_python.touch()
+
+    def fail(command, *, cwd, check, env):
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(install.subprocess, "run", fail)
+    assert install.run_install(project) == 1
+    assert venv_python.exists()
+    assert "较短路径" in capsys.readouterr().err
+
+
 def test_existing_valid_venv_is_reused(project, monkeypatch):
     install = installer()
     (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
