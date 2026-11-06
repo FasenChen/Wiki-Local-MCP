@@ -46,6 +46,7 @@ PAT（必填，输入不显示）：
 1. 脚本创建或复用项目内的 `.venv`，安装固定版本依赖，再分别检查 MCP 只读工具加载和 Wiki 身份认证。
 2. 看到 `检查 MCP 工具完成。`、`Confluence authentication succeeded.` 和 `检查 Wiki 认证完成。`，表示这些安装检查已通过。检查只发送读取请求；认证成功不代表账号对所有空间都有权限。
 3. 安装结束时按 Enter 退出。以后需要更新配置时，可重新运行安装脚本，在结束时输入 `E` 重新填写；修改配置后重启 MCP 和正在运行的审批服务，并可重新运行安装检查。
+4. 所有检查通过后，脚本在项目目录生成 `MCP_SETUP.md`，并显示它的完整路径。下一步将这个文件发给 Agent。
 
 ### 升级或移动已有安装
 
@@ -67,22 +68,17 @@ python3 -m venv .venv
 
 编辑 `.env` 并保存地址和 PAT，再执行 `.venv/bin/python -m confluence_mcp.healthcheck`。需要内部 CA 时，在 `.env` 设置 `ATLASSIAN_CONFLUENCE_CA_BUNDLE`，不要关闭 TLS 验证。上述命令也适用于 macOS；Windows 手动安装时可先运行 `python -m venv .venv`，再使用下方开发命令和 `.env.example`。
 
+Linux 也可在项目目录运行 `python3 scripts/install.py`，使用相同的控制台安装引导并生成 `MCP_SETUP.md`。
+
 ### 5. 让 Agent 配置 MCP
 
-将解压后的**本机完整目录**提供给 Agent；stdio MCP 需要使用本机启动命令。下面的指令可交给 WorkBuddy、DSH、Codex 或 Claude Code，使用前替换尖括号中的内容：
+把安装成功后生成的 **`MCP_SETUP.md` 作为附件发给当前 Agent**，即可请求它配置 Wiki MCP。
 
-```text
-请阅读 MCP 目录中的 README.md，为当前 Agent 注册已安装的本地 stdio MCP。
-项目地址：https://github.com/FasenChen/Wiki-Local-MCP
-操作系统：<Windows、macOS 或 Linux>
-当前 Agent：<WorkBuddy、DSH、Codex 或 Claude Code>
-MCP 目录：<解压后的完整目录>
+文档已经填写本机操作系统、项目目录、Python 启动路径及参数，并包含 WorkBuddy、DSH、Codex 和 Claude Code 的接入步骤。Agent 会识别当前客户端，保留其他配置，再检查工具是否加载。
 
-请保留已有配置，只添加或更新 wiki-local-mcp；不要读取、输出或让我粘贴 .env 内容及 PAT。
-完成后检查 search_pages、get_page 是否出现，说明是否需要重启；不要执行 Wiki 写操作。
-```
+该文件只包含本机接入信息。PAT 保存在项目 `.env` 中。移动安装目录后，重新运行 setup 并使用新生成的文档。
 
-Agent 的文件权限、客户端版本和重启方式可能不同；如果无法自动配置，可使用下面的对应示例。注册成功与实际工具连接成功需要分别检查。
+自动配置需要 Agent 有本机文件访问和配置写入权限。权限不足时，文档会引导 Agent 提供可粘贴配置和具体放置位置。客户端需要重启或重载时，由 Agent 说明对应操作。
 
 ### 手动注册示例
 

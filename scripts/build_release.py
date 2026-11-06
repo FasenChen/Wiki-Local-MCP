@@ -18,6 +18,8 @@ def _is_private_or_runtime(name: str) -> bool:
     path = PurePosixPath(name)
     parts = {part.casefold() for part in path.parts}
     basename = path.name.casefold()
+    if basename == "mcp_setup.md":
+        return True
     if parts & {".git", ".venv", ".superpowers", "__pycache__", ".pytest_cache", "dist", "build"}:
         return True
     if basename.startswith(".env") and name != ".env.example":
@@ -38,7 +40,7 @@ def build_release(output: Path) -> None:
         names = source.namelist()
         if len(names) != len(set(names)) or any(_is_private_or_runtime(name) for name in names):
             raise ValueError("The committed snapshot contains private or runtime files.")
-        if not {".env.example", "setup.bat", "setup.command"}.issubset(names):
+        if not {".env.example", "setup.bat", "setup.command", "MCP_SETUP.template.md"}.issubset(names):
             raise ValueError("The committed snapshot is missing the template or setup scripts.")
         template = source.read(".env.example")
         for line in template.decode("utf-8-sig").splitlines():

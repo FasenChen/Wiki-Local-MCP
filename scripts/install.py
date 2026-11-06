@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import getpass
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import warnings
 from pathlib import Path
+from string import Template
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -164,6 +166,23 @@ def ensure_configuration(root: Path, *, edit: bool = False) -> bool:
     return False
 
 
+def _write_agent_setup(root: Path, venv_python: Path) -> Path:
+    command = str(venv_python.absolute())
+    config = {"mcpServers": {"wiki-local-mcp": {
+        "type": "stdio", "command": command, "args": ["-m", "confluence_mcp.server"],
+    }}}
+    template = Template((root / "MCP_SETUP.template.md").read_text(encoding="utf-8"))
+    document = template.substitute(
+        SYSTEM={"win32": "Windows", "darwin": "macOS", "linux": "Linux"}.get(sys.platform, sys.platform),
+        PROJECT_DIR=json.dumps(str(root.resolve()), ensure_ascii=False),
+        MCP_CONFIG=json.dumps(config, ensure_ascii=False, indent=2),
+        PYTHON_COMMAND=json.dumps(command, ensure_ascii=False),
+    )
+    output = root / "MCP_SETUP.md"
+    output.write_text(document, encoding="utf-8", newline="\n")
+    return output
+
+
 def run_install(root: Path) -> int:
     if sys.version_info < (3, 10):
         print("需要 Python 3.10 或更高版本。", file=sys.stderr)
@@ -212,6 +231,12 @@ def run_install(root: Path) -> int:
                 print(f"{label}无法启动，请检查 Python 和项目路径。", file=sys.stderr)
             return 1
         print(f"{label}完成。")
+    try:
+        document = _write_agent_setup(root, venv_python)
+    except (OSError, ValueError, KeyError):
+        print("无法生成 Agent 接入文档，请检查 MCP_SETUP.template.md 和目录权限。", file=sys.stderr)
+        return 1
+    print(f"请将 {document} 发给 Agent 完成 MCP 配置。")
     return 0
 
 

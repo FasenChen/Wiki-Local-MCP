@@ -1,6 +1,8 @@
 import getpass
 import importlib
+import json
 import os
+import re
 import subprocess
 import sys
 import warnings
@@ -30,9 +32,38 @@ def project(tmp_path, monkeypatch):
         "ATLASSIAN_CONFLUENCE_URL=\nATLASSIAN_CONFLUENCE_PAT=\n", encoding="utf-8"
     )
     (root / "constraints.txt").write_text("", encoding="utf-8")
+    template = Path(__file__).resolve().parents[1] / "MCP_SETUP.template.md"
+    (root / template.name).write_bytes(template.read_bytes())
     monkeypatch.setattr("builtins.input", lambda prompt: "")
     monkeypatch.setattr(getpass, "getpass", lambda prompt: "")
     return root
+
+
+@pytest.mark.parametrize(("platform", "system", "python_parts"), [
+    ("win32", "Windows", ("Scripts", "python.exe")),
+    ("darwin", "macOS", ("bin", "python")),
+    ("linux", "Linux", ("bin", "python")),
+])
+def test_agent_document_contains_local_paths_and_client_instructions_without_pat(
+    project, monkeypatch, platform, system, python_parts,
+):
+    install = installer()
+    (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(install, "sys", SimpleNamespace(platform=platform))
+    python = project / ".venv" / Path(*python_parts)
+
+    output = install._write_agent_setup(project, python)
+
+    assert output == project / "MCP_SETUP.md"
+    text = output.read_text(encoding="utf-8")
+    blocks = re.findall(r"```json\n(.*?)\n```", text, re.DOTALL)
+    assert json.loads(blocks[0]) == str(project.resolve())
+    server = json.loads(blocks[1])["mcpServers"]["wiki-local-mcp"]
+    assert server == {"type": "stdio", "command": str(python), "args": ["-m", "confluence_mcp.server"]}
+    assert system in text
+    assert all(client in text for client in ("Codex", "Claude Code", "WorkBuddy", "DeepSeek Harness"))
+    assert "sample-secret" not in text and "wiki.example.invalid" not in text
+    assert "$MCP_CONFIG" not in text
 
 
 def test_console_setup_creates_config_without_echoing_pat(project, monkeypatch, capsys):
@@ -221,6 +252,7 @@ def test_installer_imports_without_installed_dependencies(project):
 @pytest.mark.parametrize(("platform", "venv_parts"), [
     ("win32", ("Scripts", "python.exe")),
     ("darwin", ("bin", "python")),
+    ("linux", ("bin", "python")),
 ])
 def test_install_runs_steps_in_isolated_project_with_platform_python(
     project, monkeypatch, capsys, platform, venv_parts
@@ -252,6 +284,7 @@ def test_install_runs_steps_in_isolated_project_with_platform_python(
     ]
     assert calls[3][0][:2] == [str(venv_python), "-c"]
     assert calls[4][0] == [str(venv_python), "-m", "confluence_mcp.healthcheck"]
+    assert (project / "MCP_SETUP.md").is_file()
     assert all(cwd == project for _, cwd, _ in calls)
     assert all("PYTHONPATH" not in env and "PYTHONHOME" not in env for _, _, env in calls)
     assert "sample-secret" not in capsys.readouterr().out
@@ -323,6 +356,26 @@ def test_existing_valid_venv_is_reused(project, monkeypatch):
     assert marker.read_text(encoding="utf-8") == "keep"
 
 
+def test_unwritable_agent_document_reports_failure_after_checks(project, monkeypatch, capsys):
+    install = installer()
+    (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
+    (project / "MCP_SETUP.md").mkdir()
+    venv_python = project / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    venv_python.parent.mkdir(parents=True)
+    venv_python.touch()
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(install.subprocess, "run", run)
+    assert install.run_install(project) == 1
+    assert len(calls) == 4
+    assert "MCP_SETUP.template.md" in capsys.readouterr().err
+    assert venv_python.exists()
+
+
 def test_dependency_install_failure_stops_before_network_check(project, monkeypatch, capsys):
     install = installer()
     (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
@@ -367,6 +420,7 @@ def test_failed_checks_stop_install_and_report_failure(project, monkeypatch, cap
     assert install.run_install(project) == 1
     if failed_step == "local_tools":
         assert not any("confluence_mcp.healthcheck" in command for command in calls)
+    assert not (project / "MCP_SETUP.md").exists()
     assert "sample-secret" not in capsys.readouterr().err
 
 

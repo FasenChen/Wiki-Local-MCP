@@ -30,7 +30,8 @@ def repo(tmp_path):
     (root / "setup.bat").write_bytes(b"@echo off\necho safe\n")
     (root / "setup.command").write_bytes(b"#!/bin/sh\r\necho safe\r\n")
     (root / "README.md").write_text("public\n", encoding="utf-8")
-    git(root, "add", ".env.example", "setup.bat", "setup.command", "README.md")
+    (root / "MCP_SETUP.template.md").write_text("public Agent template\n", encoding="utf-8")
+    git(root, "add", ".env.example", "setup.bat", "setup.command", "README.md", "MCP_SETUP.template.md")
     git(root, "update-index", "--chmod=+x", "setup.command")
     git(root, "commit", "-qm", "test snapshot")
     return root
@@ -48,18 +49,29 @@ def test_release_uses_committed_template_and_excludes_private_files(repo, tmp_pa
     (repo / ".venv" / "secret.txt").write_text("PRIVATE_SENTINEL", encoding="utf-8")
     (repo / "queue.sqlite3").write_text("PRIVATE_SENTINEL", encoding="utf-8")
     (repo / "audit.log").write_text("PRIVATE_SENTINEL", encoding="utf-8")
+    (repo / "MCP_SETUP.md").write_text("PRIVATE_SENTINEL", encoding="utf-8")
     output = tmp_path / "release.zip"
     builder(repo, monkeypatch).build_release(output)
     with zipfile.ZipFile(output) as archive:
         names = archive.namelist()
         assert len(names) == len(set(names))
         assert archive.read(".env") == archive.read(".env.example")
+        assert archive.read("MCP_SETUP.template.md").decode("utf-8").splitlines() == ["public Agent template"]
         assert all(b"PRIVATE_SENTINEL" not in archive.read(name) for name in names if not name.endswith("/"))
         assert not any(name.startswith(".venv/") or name.endswith((".sqlite3", ".log")) for name in names)
         assert archive.getinfo("setup.command").external_attr >> 16 & 0o111
         assert b"\r" not in archive.read("setup.command")
         assert b"\r\n" in archive.read("setup.bat")
         assert b"\n" not in archive.read("setup.bat").replace(b"\r\n", b"")
+
+
+def test_release_requires_agent_template(repo, tmp_path, monkeypatch):
+    git(repo, "rm", "MCP_SETUP.template.md")
+    git(repo, "commit", "-qm", "missing template")
+    output = tmp_path / "release.zip"
+    with pytest.raises(ValueError, match="missing"):
+        builder(repo, monkeypatch).build_release(output)
+    assert not output.exists()
 
 
 def test_nonempty_template_pat_is_rejected_without_exposing_it(repo, tmp_path, monkeypatch):
@@ -118,7 +130,7 @@ def test_existing_release_is_not_overwritten(repo, tmp_path, monkeypatch):
     assert output.read_bytes() == b"existing content"
 
 
-@pytest.mark.parametrize("name", [".env", "queue.sqlite3", "audit.log", ".venv/data.txt"])
+@pytest.mark.parametrize("name", [".env", "MCP_SETUP.md", "queue.sqlite3", "audit.log", ".venv/data.txt"])
 def test_tracked_private_or_runtime_file_is_rejected(repo, tmp_path, monkeypatch, name):
     path = repo / name
     path.parent.mkdir(parents=True, exist_ok=True)
