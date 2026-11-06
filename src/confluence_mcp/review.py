@@ -37,7 +37,11 @@ def _format(op: dict[str, Any]) -> str:
         f"{op['space_key']}/{op['page_id']}  v{op['version_before']}  {op['summary']}"
     )
     preview = "\n".join(f"    {line}" for line in op["preview"].splitlines())
-    return f"{header}\n{preview}" if preview else header
+    images = "\n".join(
+        f"    Image: {image['source']} -> {image['filename']} ({image['size_bytes']} bytes)"
+        for image in queue.attachment_summaries(op["id"])
+    )
+    return "\n".join(part for part in (header, images, preview) if part)
 
 
 def _show(ops: list[dict[str, Any]]) -> None:
@@ -56,7 +60,7 @@ def _approve(ids: list[str]) -> int:
         print("approve needs an interactive terminal", file=sys.stderr)
         return 2
     if not writes_enabled():
-        print(f"approve writes to Confluence; set {WRITE_FLAG}=true first", file=sys.stderr)
+        print(f"approve writes to Confluence; set {WRITE_FLAG}=true in the project root .env and restart", file=sys.stderr)
         return 2
     for op_id in queue.recover_stale_executing():
         print(f"interrupted earlier, outcome unknown (check Confluence): {op_id}")
@@ -85,7 +89,7 @@ def _web() -> int:
         print("web needs an interactive terminal", file=sys.stderr)
         return 2
     if not writes_enabled():
-        print(f"web writes to Confluence; set {WRITE_FLAG}=true first", file=sys.stderr)
+        print(f"web writes to Confluence; set {WRITE_FLAG}=true in the project root .env and restart", file=sys.stderr)
         return 2
     queue.recover_stale_executing()
     web.serve(get_client())

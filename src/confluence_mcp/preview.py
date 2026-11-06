@@ -7,14 +7,17 @@ escaped. The HTML is only ever shown inside a sandboxed frame.
 
 from __future__ import annotations
 
+import base64
 import html
 import re
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from .images import ImageAttachment
+
 # shortcut: an approximation of Confluence rendering (text, lists, tables, the code macro and
-# external images; other macros are labelled, attachments are not fetched). Upgrade if
+# external/queued images; other macros are labelled, existing attachments are not fetched). Upgrade if
 # reviewers need exact parity, e.g. by rendering Confluence's own body.view.
 
 # An element is (tag, attrs, children); a text node is a str.
@@ -108,13 +111,16 @@ def _img(src: str | None, alt: str | None) -> str:
     return f'<img src="{_esc(src)}" alt="{_esc(alt or "")}" referrerpolicy="no-referrer">'
 
 
-def _ac_image(attrs: dict[str, Any], children: list[Node]) -> str:
+def _ac_image(attrs: dict[str, Any], children: list[Node], images: dict[str, str]) -> str:
     for child in children:
         if _is(child, "ri:url"):
             return _img(child[1].get("ri:value"), attrs.get("ac:alt"))
     for child in children:
         if _is(child, "ri:attachment"):
-            return _label("图片未渲染: 附件 " + (child[1].get("ri:filename") or ""))
+            filename = child[1].get("ri:filename") or ""
+            if filename in images:
+                return f'<img src="{_esc(images[filename])}" alt="{_esc(attrs.get("ac:alt") or filename)}">'
+            return _label("图片未渲染: 附件 " + filename)
     return _label("图片未渲染: 未知来源")
 
 
@@ -125,7 +131,7 @@ def _param(children: list[Node], name: str) -> str:
     return ""
 
 
-def _macro(attrs: dict[str, Any], children: list[Node]) -> str:
+def _macro(attrs: dict[str, Any], children: list[Node], images: dict[str, str]) -> str:
     name = attrs.get("ac:name") or ""
     if name == "code":
         language = _param(children, "language")
@@ -135,7 +141,7 @@ def _macro(attrs: dict[str, Any], children: list[Node]) -> str:
             f'<div class="code"><div class="cap">{_esc(caption)}</div>'
             f"<pre><code>{_esc(code)}</code></pre></div>"
         )
-    inner = "".join(_render(child) for child in children)
+    inner = "".join(_render(child, images) for child in children)
     return f'<div class="unsupported-block">宏未渲染：{_esc(name or "未知")}（以 Confluence 页面为准）</div>{inner}'
 
 
@@ -150,19 +156,19 @@ def _cell_attrs(tag: str, attrs: dict[str, Any]) -> str:
     return out
 
 
-def _render(node: Node) -> str:
+def _render(node: Node, images: dict[str, str]) -> str:
     if isinstance(node, str):
         return _esc(node)
     tag, attrs, children = node
     if tag in _DROP or tag == "ac:parameter":
         return ""
     if tag == "ac:structured-macro":
-        return _macro(attrs, children)
+        return _macro(attrs, children, images)
     if tag == "ac:image":
-        return _ac_image(attrs, children)
+        return _ac_image(attrs, children, images)
     if tag == "img":
         return _img(attrs.get("src"), attrs.get("alt"))
-    inner = "".join(_render(child) for child in children)
+    inner = "".join(_render(child, images) for child in children)
     if tag == "a":
         href = (attrs.get("href") or "").strip()
         if not _external(href):
@@ -180,19 +186,23 @@ def _render(node: Node) -> str:
     return inner
 
 
-def storage_to_preview_html(storage: str) -> str:
+def storage_to_preview_html(storage: str, attachments: list[ImageAttachment] | None = None) -> str:
     """Render storage XHTML as safe HTML: only allowlisted tags, every text node escaped."""
     # HTMLParser does not reliably recognise CDATA outside foreign content, so turn code-macro
     # CDATA into escaped text first. The macro body then reaches _render as ordinary text.
     builder = _TreeBuilder()
     builder.feed(_CDATA.sub(lambda match: html.escape(match.group(1), quote=False), storage))
     builder.close()
-    return "".join(_render(child) for child in builder.root[2])
+    images = {
+        image.filename: f"data:{image.content_type};base64,{base64.b64encode(image.data).decode('ascii')}"
+        for image in attachments or []
+    }
+    return "".join(_render(child, images) for child in builder.root[2])
 
 
-def render_document(storage: str) -> str:
+def render_document(storage: str, attachments: list[ImageAttachment] | None = None) -> str:
     """A complete, self-contained HTML document for the sandboxed preview frame."""
-    body = storage_to_preview_html(storage) if storage.strip() else _label("正文为空")
+    body = storage_to_preview_html(storage, attachments) if storage.strip() else _label("正文为空")
     return (
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
         '<meta name="referrer" content="no-referrer">'

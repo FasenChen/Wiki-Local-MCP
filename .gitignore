@@ -10,5 +10,8 @@ build/
 .env.*
 !.env.example
 
+# Generated Agent instructions contain this computer's installation paths
+/MCP_SETUP.md
+
 # Local planning docs are not published
 docs/

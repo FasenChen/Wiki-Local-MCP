@@ -19,9 +19,9 @@ def _console(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _writes(monkeypatch, tmp_path, fake_client):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+def _writes(monkeypatch, tmp_path, fake_client, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.delitem(config_values, "CONFLUENCE_WRITE_SPACES", raising=False)
     monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
     # fake_client only patches server.get_client; review imports its own.
     monkeypatch.setattr(review, "get_client", lambda: fake_client, raising=False)
@@ -45,6 +45,18 @@ def test_approve_refuses_without_tty(monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO("yes\n"))
     assert review.main(["approve", op]) == 2
     assert queue.list_ops()[0]["status"] == "pending"
+
+
+def test_terminal_review_lists_image_source_filename_and_size(image_file):
+    from confluence_mcp.images import ImageAttachment
+
+    image = ImageAttachment("image.png", str(image_file), "image/png", image_file.read_bytes())
+    op_id = queue.enqueue(
+        "create_page", kind="create", page_id=None, space_key="OPS", version_before=None,
+        summary="Guide", preview="body", payload={"title": "Guide"}, attachments=[image],
+    )
+    text = review._format(queue.get_op(op_id))
+    assert str(image_file) in text and "image.png" in text and f"{len(image.data)} bytes" in text
 
 
 def test_approve_refuses_when_isatty_is_not_a_console(monkeypatch, capsys):
@@ -75,9 +87,9 @@ def test_approve_without_ids_approves_and_writes_all_pending(monkeypatch, capsys
     assert "-old" in capsys.readouterr().out  # reviewer saw the preview
 
 
-def test_approve_refuses_when_writes_disabled(monkeypatch, capsys, fake_client):
+def test_approve_refuses_when_writes_disabled(monkeypatch, capsys, fake_client, config_values):
     op = _pending()
-    monkeypatch.delenv("CONFLUENCE_ENABLE_WRITES")
+    monkeypatch.delitem(config_values, "CONFLUENCE_ENABLE_WRITES")
     monkeypatch.setattr("sys.stdin", TTYInput("yes\n"))
     assert review.main(["approve", op]) == 2
     assert queue.list_ops()[0]["status"] == "pending"
@@ -128,8 +140,8 @@ def test_web_refuses_without_tty(monkeypatch, capsys):
     assert "interactive terminal" in capsys.readouterr().err
 
 
-def test_web_refuses_when_writes_disabled(monkeypatch, capsys):
-    monkeypatch.delenv("CONFLUENCE_ENABLE_WRITES", raising=False)
+def test_web_refuses_when_writes_disabled(monkeypatch, capsys, config_values):
+    monkeypatch.delitem(config_values, "CONFLUENCE_ENABLE_WRITES", raising=False)
     monkeypatch.setattr("sys.stdin", TTYInput(""))
     assert review.main(["web"]) == 2
     assert "CONFLUENCE_ENABLE_WRITES" in capsys.readouterr().err

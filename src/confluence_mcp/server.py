@@ -14,6 +14,7 @@ from .client import (
     quote_cql,
 )
 from .conversion import storage_to_markdown
+from .images import prepare_images
 from .markdown_storage import contains_macro, markdown_to_storage
 from .outline import extract_section, find_headings, replace_section
 from .writes import ensure_write_allowed, writes_enabled
@@ -306,10 +307,13 @@ def update_page_section(
     dry_run: bool = True,
     change_message: str = "",
     max_chars: int = 4000,
+    image_base_dir: str | None = None,
 ) -> dict[str, Any]:
     """Replace one heading section, preserving the rest of the page byte for byte.
 
     A dry run previews the change; dry_run=False queues it for human approval.
+    Images are snapshotted for upload on approval. For relative paths, set
+    image_base_dir to the absolute directory containing the source Markdown file.
     """
     section_title = section_title.strip()
     if not section_title:
@@ -333,7 +337,7 @@ def update_page_section(
 
     old_storage = _storage(page)
     heading, body = extract_section(old_storage, section_title)
-    new_body = markdown_to_storage(new_content_markdown)
+    new_body, attachments = prepare_images(markdown_to_storage(new_content_markdown), image_base_dir)
     new_storage = replace_section(old_storage, section_title, new_body)
 
     old_section = old_storage[heading.start : heading.end] + body
@@ -354,6 +358,7 @@ def update_page_section(
             "diff": diff[:max_chars],
             "truncated": len(diff) > max_chars,
             "storage_preview": new_section[:max_chars],
+            "attachments": [image.summary() for image in attachments],
         }
 
     payload = {
@@ -376,6 +381,7 @@ def update_page_section(
             summary=heading.title,
             preview=diff,
             payload=payload,
+            attachments=attachments,
         )
     )
 
@@ -390,10 +396,13 @@ def update_page(
     force: bool = False,
     change_message: str = "",
     max_chars: int = 4000,
+    image_base_dir: str | None = None,
 ) -> dict[str, Any]:
     """Replace a page body, guarded by an expected version.
 
     A dry run previews the change; dry_run=False queues it for human approval.
+    Markdown images are snapshotted for upload on approval. For relative paths,
+    set image_base_dir to the absolute directory containing the source Markdown file.
     """
     if expected_version < 1:
         raise ValueError("expected_version must be at least 1.")
@@ -417,13 +426,14 @@ def update_page(
         )
 
     old_storage = _storage(page)
+    attachments = []
     if content_format == "markdown":
         if contains_macro(old_storage) and not force:
             raise ConfluenceAPIError(
                 "This page contains Confluence macros; replacing it with Markdown would drop them. "
                 'Use update_page_section, content_format="storage", or force=True.'
             )
-        new_storage = markdown_to_storage(content)
+        new_storage, attachments = prepare_images(markdown_to_storage(content), image_base_dir)
     else:
         new_storage = content
 
@@ -447,6 +457,7 @@ def update_page(
             "diff": diff[:max_chars],
             "truncated": len(diff) > max_chars,
             "storage_preview": new_storage[:max_chars],
+            "attachments": [image.summary() for image in attachments],
         }
 
     payload = {
@@ -469,6 +480,7 @@ def update_page(
             summary=new_title,
             preview=diff,
             payload=payload,
+            attachments=attachments,
         )
     )
 
@@ -479,10 +491,14 @@ def create_page(
     content_markdown: str,
     parent_page_id: str | None = None,
     dry_run: bool = True,
+    image_base_dir: str | None = None,
 ) -> dict[str, Any]:
     """Create a page from Markdown.
 
     A dry run previews the change; dry_run=False queues it for human approval.
+    Local and http(s) images are snapshotted and uploaded as page attachments on
+    approval. For relative paths, set image_base_dir to the absolute directory
+    containing the source Markdown file. attachment:filename reuses a page attachment.
     """
     space_key = space_key.strip()
     title = title.strip()
@@ -518,7 +534,7 @@ def create_page(
             )
         ancestors = [{"id": parent_page_id}]
 
-    storage = markdown_to_storage(content_markdown)
+    storage, attachments = prepare_images(markdown_to_storage(content_markdown), image_base_dir)
     target = {"space_key": space_key, "title": title, "parent_page_id": parent_page_id}
     if dry_run:
         return {
@@ -526,6 +542,7 @@ def create_page(
             "action": "create_page",
             "target": target,
             "storage_preview": storage[:4000],
+            "attachments": [image.summary() for image in attachments],
         }
 
     payload: dict[str, Any] = {
@@ -546,6 +563,7 @@ def create_page(
             summary=title,
             preview=content_markdown,
             payload=payload,
+            attachments=attachments,
         )
     )
 
@@ -861,7 +879,10 @@ def get_queued_operations(operation_ids: list[str]) -> dict[str, Any]:
         if op is None:
             missing.append(op_id)
         else:
-            operations.append({key: op[key] for key in fields})
+            operations.append({
+                **{key: op[key] for key in fields},
+                "attachments": queue.attachment_summaries(op_id),
+            })
     return {"operations": operations, "missing": missing}
 
 

@@ -12,9 +12,9 @@ PAGE = {
 }
 
 
-def test_add_comment_dry_run_previews_without_posting(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+def test_add_comment_dry_run_previews_without_posting(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.delitem(config_values, "CONFLUENCE_WRITE_SPACES", raising=False)
     fake_client.pages["42"] = PAGE
 
     result = server.add_comment("42", "looks good", dry_run=True)
@@ -25,8 +25,8 @@ def test_add_comment_dry_run_previews_without_posting(fake_client, monkeypatch):
     assert fake_client.created == []
 
 
-def test_add_comment_queues_comment_payload(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_add_comment_queues_comment_payload(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = PAGE
 
     result = server.add_comment("42", "reply", parent_comment_id="99", dry_run=False)
@@ -44,9 +44,9 @@ def test_add_comment_queues_comment_payload(fake_client, monkeypatch):
     assert payload["ancestors"] == [{"id": "99"}]
 
 
-def test_add_comment_respects_whitelist(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "QA")
+def test_add_comment_respects_whitelist(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    monkeypatch.setitem(config_values, "CONFLUENCE_WRITE_SPACES", "QA")
     fake_client.pages["42"] = PAGE
 
     from confluence_mcp.client import ConfluenceConfigurationError
@@ -55,8 +55,8 @@ def test_add_comment_respects_whitelist(fake_client, monkeypatch):
         server.add_comment("42", "x")
 
 
-def test_add_comment_rejects_bad_parent_id(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_add_comment_rejects_bad_parent_id(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = PAGE
 
     with pytest.raises(ValueError):

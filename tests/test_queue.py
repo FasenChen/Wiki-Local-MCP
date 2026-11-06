@@ -118,3 +118,40 @@ def test_unversioned_database_with_other_columns_is_refused():
     _raw_db(0, "CREATE TABLE operations (id TEXT)")
     with pytest.raises(queue.QueueSchemaError):
         queue.list_ops()
+
+
+def test_version_one_migration_preserves_operations_and_accepts_image_snapshots(image_file):
+    old = _enqueue()
+    with closing(sqlite3.connect(queue.QUEUE_PATH)) as conn:
+        conn.execute("DROP TABLE image_attachments")
+        conn.execute("PRAGMA user_version = 1")
+    from confluence_mcp.images import ImageAttachment
+
+    image = ImageAttachment("image.png", str(image_file), "image/png", image_file.read_bytes())
+    new = _enqueue(attachments=[image])
+    assert [op["id"] for op in queue.list_ops()] == [old, new]
+    assert queue.get_attachments(old) == []
+    assert queue.get_attachments(new) == [image]
+    assert queue.attachment_summaries(new) == [image.summary()]
+    queue.reject([new])
+    assert queue.get_attachments(new) == [image]
+
+
+def test_interrupted_execution_keeps_remote_progress():
+    op_id = _enqueue()
+    queue.approve([op_id])
+    queue.claim_approved(op_id)
+    result = {"id": "77", "uploaded_attachments": ["image.png"]}
+    queue.record_progress(op_id, result)
+    queue.recover_stale_executing(now=datetime.now(timezone.utc) + timedelta(minutes=6))
+    assert queue.get_op(op_id)["status"] == "indeterminate"
+    assert queue.get_op(op_id)["result"] == result
+
+
+def test_image_snapshot_and_operation_are_inserted_atomically(image_file):
+    from confluence_mcp.images import ImageAttachment
+
+    image = ImageAttachment("image.png", str(image_file), "image/png", image_file.read_bytes())
+    with pytest.raises(sqlite3.IntegrityError):
+        _enqueue(attachments=[image, image])
+    assert queue.list_ops() == []

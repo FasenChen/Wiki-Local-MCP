@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
-import keyring
 
-from .credentials import KEYRING_SERVICE, KEYRING_USERNAME
+from . import settings_file
 
 
 # Tool positions -> the values the Confluence move dialog posts to movepage.action.
@@ -34,16 +32,17 @@ class ConfluenceAPIError(RuntimeError):
 @dataclass(frozen=True)
 class ConfluenceSettings:
     base_url: str
-    pat: str
+    pat: str = field(repr=False)
     ca_bundle: str | None
 
     @classmethod
     def from_environment(cls) -> "ConfluenceSettings":
-        raw_url = os.environ.get("ATLASSIAN_CONFLUENCE_URL", "").strip()
+        settings = settings_file.get_settings()
+        raw_url = settings.get("ATLASSIAN_CONFLUENCE_URL", "").strip()
         if not raw_url:
             raise ConfluenceConfigurationError(
-                "Set ATLASSIAN_CONFLUENCE_URL to the Confluence base URL, "
-                "including any context path such as /confluence."
+                "Set ATLASSIAN_CONFLUENCE_URL in the project root .env to the Confluence "
+                "base URL, including any context path such as /confluence."
             )
 
         parsed = urlsplit(raw_url)
@@ -57,23 +56,13 @@ class ConfluenceSettings:
             )
         normalized_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
-        pat = os.environ.get("ATLASSIAN_CONFLUENCE_PAT", "").strip() or None
-        if pat is None:
-            try:
-                pat = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
-            except Exception as exc:
-                raise ConfluenceConfigurationError(
-                    "Could not read the operating-system credential store. Set "
-                    "ATLASSIAN_CONFLUENCE_PAT or save a PAT with "
-                    "`uv run confluence-mcp-store-pat`."
-                ) from exc
+        pat = settings.get("ATLASSIAN_CONFLUENCE_PAT", "").strip()
         if not pat:
             raise ConfluenceConfigurationError(
-                "No Confluence PAT found. Save one with `uv run confluence-mcp-store-pat`, "
-                "or set ATLASSIAN_CONFLUENCE_PAT."
+                "Set ATLASSIAN_CONFLUENCE_PAT in the project root .env."
             )
 
-        ca_bundle = os.environ.get("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "").strip() or None
+        ca_bundle = settings.get("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "").strip() or None
         return cls(normalized_url, pat, ca_bundle)
 
 
@@ -91,6 +80,12 @@ class ConfluenceClient:
             follow_redirects=False,
         )
         self._base_url = settings.base_url
+
+    def close(self) -> None:
+        self._client.close()
+
+    def get_current_user(self) -> dict[str, Any]:
+        return self._get_json("user/current", params={})
 
     def _validate_page_id(self, page_id: str) -> None:
         if not re.fullmatch(r"[0-9]+", page_id):
@@ -181,6 +176,27 @@ class ConfluenceClient:
         self._validate_page_id(page_id)
         return self._request_json("PUT", f"content/{page_id}", json_body=payload)
 
+    def get_attachment(self, page_id: str, filename: str) -> dict[str, Any] | None:
+        self._validate_page_id(page_id)
+        response = self._get_json(
+            f"content/{page_id}/child/attachment", params={"filename": filename},
+        )
+        return next((item for item in response.get("results", []) if item.get("title") == filename), None)
+
+    def upload_attachment(
+        self, page_id: str, filename: str, data: bytes, content_type: str,
+    ) -> dict[str, Any]:
+        self._validate_page_id(page_id)
+        response = self._request_json(
+            "POST", f"content/{page_id}/child/attachment",
+            files={"file": (filename, data, content_type)},
+            headers={"X-Atlassian-Token": "no-check"},
+        )
+        for item in response.get("results", []):
+            if item.get("title") == filename and item.get("id"):
+                return item
+        raise ConfluenceAPIError("Confluence did not confirm the uploaded attachment; check the page attachments.")
+
     def move_page(self, page_id: str, position: str, target_id: str) -> dict[str, Any]:
         """Move a page before/after a sibling of target_id, or append it under target_id.
 
@@ -240,15 +256,21 @@ class ConfluenceClient:
         *,
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
+        files: dict[str, tuple[str, bytes, str]] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         try:
-            response = self._client.request(method, path, params=params, json=json_body)
+            response = self._client.request(
+                method, path, params=params, json=json_body, files=files, headers=headers,
+            )
         except httpx.TimeoutException as exc:
             raise ConfluenceAPIError("The Confluence request timed out.") from exc
         except httpx.ConnectError as exc:
             raise ConfluenceAPIError(
                 "Could not connect to Confluence. Check the URL, network/VPN, and TLS CA settings."
             ) from exc
+        except httpx.RequestError as exc:
+            raise ConfluenceAPIError("Confluence network request failed. Check the network/VPN.") from exc
 
         if response.is_redirect:
             raise ConfluenceAPIError(

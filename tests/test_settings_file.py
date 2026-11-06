@@ -22,35 +22,34 @@ def test_malformed_line_reports_line_number_without_value():
     assert "secret-without-equals" not in str(info.value)
 
 
-def test_missing_file_is_a_no_op(tmp_path):
-    assert settings_file.load_env_file(tmp_path / "absent.env") == []
+def test_missing_file_returns_empty_settings(tmp_path):
+    assert settings_file.load_env_file(tmp_path / "absent.env") == {}
 
 
-def test_loads_keys_but_never_overrides_process_env(tmp_path, monkeypatch):
+def test_file_settings_do_not_modify_process_environment(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    path.write_text("ATLASSIAN_CONFLUENCE_URL=https://wiki.example.com\nCONFLUENCE_WRITE_SPACES=OPS\n", encoding="utf-8")
-    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://other.example.com")
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
-    loaded = settings_file.load_env_file(path)
-    assert os.environ["ATLASSIAN_CONFLUENCE_URL"] == "https://other.example.com"
-    assert os.environ["CONFLUENCE_WRITE_SPACES"] == "OPS"
-    assert loaded == ["CONFLUENCE_WRITE_SPACES"]
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES", raising=False)
+    path.write_text(
+        "ATLASSIAN_CONFLUENCE_URL=https://file.example.com/confluence\n"
+        "CONFLUENCE_WRITE_SPACES=OPS\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://process.example.com")
+    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "QA")
+    before = dict(os.environ)
+    result = settings_file.load_env_file(path)
+    assert result == {
+        "ATLASSIAN_CONFLUENCE_URL": "https://file.example.com/confluence",
+        "CONFLUENCE_WRITE_SPACES": "OPS",
+    }
+    assert dict(os.environ) == before
 
 
 def test_utf8_bom_does_not_corrupt_first_key(tmp_path, monkeypatch):
     path = tmp_path / ".env"
     path.write_bytes("\ufeffATLASSIAN_CONFLUENCE_URL=https://bom.example.com\n".encode("utf-8"))
-    monkeypatch.delenv("ATLASSIAN_CONFLUENCE_URL", raising=False)
-    assert settings_file.load_env_file(path) == ["ATLASSIAN_CONFLUENCE_URL"]
-    assert os.environ["ATLASSIAN_CONFLUENCE_URL"] == "https://bom.example.com"
-    monkeypatch.delenv("ATLASSIAN_CONFLUENCE_URL", raising=False)
-
-
-def test_test_session_never_reads_repo_env_file():
-    from pathlib import Path
-
-    assert not Path(os.environ[settings_file.ENV_FILE_VAR]).exists()
+    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://process.example.com")
+    assert settings_file.load_env_file(path) == {"ATLASSIAN_CONFLUENCE_URL": "https://bom.example.com"}
+    assert os.environ["ATLASSIAN_CONFLUENCE_URL"] == "https://process.example.com"
 
 
 def test_strips_trailing_comment_after_whitespace():
@@ -69,21 +68,26 @@ def test_hash_without_leading_space_is_part_of_value():
     }
 
 
-def test_default_env_file_is_in_working_directory():
-    from pathlib import Path
+def test_pat_starting_with_hash_is_not_a_comment():
+    assert parse_env("ATLASSIAN_CONFLUENCE_PAT=#sample==\n") == {
+        "ATLASSIAN_CONFLUENCE_PAT": "#sample=="
+    }
 
-    assert settings_file.DEFAULT_ENV_FILE == Path.cwd() / ".env"
 
-
-def test_pat_in_env_file_is_never_loaded(tmp_path, monkeypatch):
+def test_pat_is_loaded_and_unknown_keys_are_excluded(tmp_path, monkeypatch):
     path = tmp_path / ".env"
     path.write_text(
-        "ATLASSIAN_CONFLUENCE_PAT=secret-token-123\nCONFLUENCE_WRITE_SPACES=OPS\n", encoding="utf-8"
+        "ATLASSIAN_CONFLUENCE_PAT=file-token\n"
+        "UNUSED_SETTING=ignored\n"
+        "CONFLUENCE_WRITE_SPACES=OPS\n",
+        encoding="utf-8",
     )
-    monkeypatch.setenv("ATLASSIAN_CONFLUENCE_PAT", "")
-    monkeypatch.delenv("ATLASSIAN_CONFLUENCE_PAT")
-    monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "")
-    monkeypatch.delenv("CONFLUENCE_WRITE_SPACES")
-    loaded = settings_file.load_env_file(path)
-    assert loaded == ["CONFLUENCE_WRITE_SPACES"]
-    assert "ATLASSIAN_CONFLUENCE_PAT" not in os.environ
+    for key in ("ATLASSIAN_CONFLUENCE_PAT", "UNUSED_SETTING", "CONFLUENCE_WRITE_SPACES"):
+        monkeypatch.setenv(key, "")
+        monkeypatch.delenv(key)
+    before = dict(os.environ)
+    assert settings_file.load_env_file(path) == {
+        "ATLASSIAN_CONFLUENCE_PAT": "file-token",
+        "CONFLUENCE_WRITE_SPACES": "OPS",
+    }
+    assert dict(os.environ) == before

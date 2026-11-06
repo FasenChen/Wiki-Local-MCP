@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from .images import ImageAttachment
+
 QUEUE_PATH = Path.home() / ".confluence-mcp" / "queue.sqlite3"
 
 Status = Literal[
@@ -41,12 +43,23 @@ CREATE TABLE IF NOT EXISTS operations (
 )
 """
 
+_IMAGE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS image_attachments (
+    operation_id TEXT NOT NULL REFERENCES operations(id),
+    filename TEXT NOT NULL,
+    source TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    data BLOB NOT NULL,
+    PRIMARY KEY (operation_id, filename)
+)
+"""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _COLUMNS = {
     "id", "created_at", "updated_at", "action", "kind", "page_id", "space_key",
     "version_before", "summary", "preview", "payload", "status", "result", "error",
@@ -61,8 +74,8 @@ def _check_version(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version == SCHEMA_VERSION:
         return
-    if version == 0:
-        # Databases created before versioning have this exact layout; stamp them.
+    if version in {0, 1}:
+        # Image snapshots are additive; existing operations and their payloads stay intact.
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(operations)")}
         if columns == _COLUMNS:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -83,6 +96,7 @@ def _connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     try:
         conn.execute(_SCHEMA)
+        conn.execute(_IMAGE_SCHEMA)
         _check_version(conn)
     except Exception:
         conn.close()
@@ -107,30 +121,71 @@ def enqueue(
     summary: str,
     preview: str,
     payload: dict[str, Any],
+    attachments: list[ImageAttachment] | None = None,
 ) -> str:
     """Insert a pending operation and return its id."""
     op_id = secrets.token_hex(4)
     now = _now()
     with closing(_connect()) as conn:
-        conn.execute(
-            "INSERT INTO operations (id, created_at, updated_at, action, kind, page_id, "
-            "space_key, version_before, summary, preview, payload, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
-            (
-                op_id,
-                now,
-                now,
-                action,
-                kind,
-                page_id,
-                space_key,
-                version_before,
-                summary,
-                preview,
-                json.dumps(payload),
-            ),
-        )
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(
+                "INSERT INTO operations (id, created_at, updated_at, action, kind, page_id, "
+                "space_key, version_before, summary, preview, payload, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+                (
+                    op_id,
+                    now,
+                    now,
+                    action,
+                    kind,
+                    page_id,
+                    space_key,
+                    version_before,
+                    summary,
+                    preview,
+                    json.dumps(payload),
+                ),
+            )
+            conn.executemany(
+                "INSERT INTO image_attachments (operation_id, filename, source, content_type, data) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(op_id, image.filename, image.source, image.content_type, image.data)
+                 for image in attachments or []],
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
     return op_id
+
+
+def get_attachments(op_id: str) -> list[ImageAttachment]:
+    with closing(_connect()) as conn:
+        return [
+            ImageAttachment(row["filename"], row["source"], row["content_type"], row["data"])
+            for row in conn.execute(
+                "SELECT filename, source, content_type, data FROM image_attachments "
+                "WHERE operation_id = ? ORDER BY rowid", (op_id,),
+            )
+        ]
+
+
+def attachment_summaries(op_id: str) -> list[dict[str, Any]]:
+    with closing(_connect()) as conn:
+        return [dict(row) for row in conn.execute(
+            "SELECT filename, source, content_type, length(data) AS size_bytes FROM image_attachments "
+            "WHERE operation_id = ? ORDER BY rowid", (op_id,),
+        )]
+
+
+def record_progress(op_id: str, result: dict[str, Any]) -> None:
+    """Keep known remote changes even if execution is interrupted later."""
+    with closing(_connect()) as conn:
+        conn.execute(
+            "UPDATE operations SET result = ?, updated_at = ? WHERE id = ? AND status = 'executing'",
+            (json.dumps(result), _now(), op_id),
+        )
 
 
 def list_ops(statuses: tuple[str, ...] | None = None) -> list[dict[str, Any]]:

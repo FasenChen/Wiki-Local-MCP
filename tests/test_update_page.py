@@ -15,8 +15,8 @@ def page(version=3, storage="<p>old</p>"):
     }
 
 
-def test_update_page_dry_run_diffs_without_putting(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_dry_run_diffs_without_putting(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page()
 
     result = server.update_page("42", expected_version=3, content="new", dry_run=True)
@@ -29,24 +29,24 @@ def test_update_page_dry_run_diffs_without_putting(fake_client, monkeypatch):
     assert fake_client.updated == []
 
 
-def test_update_page_rejects_stale_expected_version(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_rejects_stale_expected_version(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page(version=4)
 
     with pytest.raises(ConfluenceAPIError, match="current version is 4"):
         server.update_page("42", expected_version=3, content="new")
 
 
-def test_update_page_rejects_markdown_on_macro_page(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_rejects_markdown_on_macro_page(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page(storage='<ac:structured-macro ac:name="toc"/><p>old</p>')
 
     with pytest.raises(ConfluenceAPIError, match="update_page_section"):
         server.update_page("42", expected_version=3, content="new")
 
 
-def test_update_page_force_allows_markdown_on_macro_page(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_force_allows_markdown_on_macro_page(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page(storage='<ac:structured-macro ac:name="toc"/><p>old</p>')
 
     result = server.update_page("42", expected_version=3, content="new", dry_run=True, force=True)
@@ -54,8 +54,8 @@ def test_update_page_force_allows_markdown_on_macro_page(fake_client, monkeypatc
     assert result["dry_run"] is True
 
 
-def test_update_page_accepts_storage_format(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_accepts_storage_format(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page()
 
     result = server.update_page(
@@ -69,8 +69,8 @@ def test_update_page_accepts_storage_format(fake_client, monkeypatch):
     assert "+raw" in result["diff"]
 
 
-def test_update_page_queues_bound_payload(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_queues_bound_payload(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page()
 
     result = server.update_page("42", expected_version=3, content="new", dry_run=False)
@@ -85,8 +85,8 @@ def test_update_page_queues_bound_payload(fake_client, monkeypatch):
     assert "+new" in op["preview"]
 
 
-def test_update_page_keeps_title_when_not_provided(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_keeps_title_when_not_provided(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page()
 
     server.update_page("42", expected_version=3, content="new", dry_run=False)
@@ -94,16 +94,16 @@ def test_update_page_keeps_title_when_not_provided(fake_client, monkeypatch):
     assert queue.list_ops()[0]["payload"]["title"] == "Guide"
 
 
-def test_update_page_rejects_empty_content(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_rejects_empty_content(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page()
 
     with pytest.raises(ValueError, match="content"):
         server.update_page("42", expected_version=3, content="   ")
 
 
-def test_update_page_rejects_empty_storage_content(fake_client, monkeypatch):
-    monkeypatch.setenv("CONFLUENCE_ENABLE_WRITES", "true")
+def test_update_page_rejects_empty_storage_content(fake_client, monkeypatch, config_values):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page()
 
     with pytest.raises(ValueError, match="content"):
