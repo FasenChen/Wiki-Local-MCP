@@ -138,7 +138,7 @@ def ensure_configuration(root: Path, *, edit: bool = False) -> bool:
         values = parse_env(original.decode("utf-8-sig"))
         url = values.get("ATLASSIAN_CONFLUENCE_URL", "").strip()
         pat = values.get("ATLASSIAN_CONFLUENCE_PAT", "").strip()
-        print("更新配置：" if edit else "配置 Wiki 连接：")
+        print("====== 更新配置 ======" if edit else "====== Wiki 连接配置 ======", flush=True)
         new_url = input("Wiki 地址（已配置，回车保留）：" if url else "Wiki 地址（必填）：").strip() or url
         with warnings.catch_warnings():
             warnings.simplefilter("error", getpass.GetPassWarning)
@@ -190,6 +190,7 @@ def run_install(root: Path) -> int:
     if not ensure_configuration(root):
         return 1
 
+    print("\n====== 环境配置 ======", flush=True)
     child_env = os.environ.copy()
     for name in ("PYTHONPATH", "PYTHONHOME", "ATLASSIAN_CONFLUENCE_PAT"):
         child_env.pop(name, None)
@@ -197,8 +198,12 @@ def run_install(root: Path) -> int:
     venv = root / ".venv"
     venv_python = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     if not venv.exists():
+        print("正在创建虚拟环境，请稍候...", flush=True)
         try:
-            subprocess.run([sys.executable, "-m", "venv", str(venv)], cwd=root, check=True, env=child_env)
+            subprocess.run(
+                [sys.executable, "-m", "venv", str(venv)], cwd=root, check=True, env=child_env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+            )
         except (OSError, subprocess.CalledProcessError):
             print("创建虚拟环境失败，请检查 Python 或尝试较短路径；现有 .venv 未自动删除。", file=sys.stderr)
             return 1
@@ -219,9 +224,15 @@ def run_install(root: Path) -> int:
         ("检查 Wiki 认证", [str(venv_python), "-m", "confluence_mcp.healthcheck"]),
     )
     for label, command in steps:
-        print(f"{label}...", flush=True)
+        message = "安装依赖中，首次安装可能需要几分钟，请稍候..." if label == "安装依赖" else f"{label}..."
+        print(message, flush=True)
+        quiet = label in {"检查 pip", "安装依赖"}
         try:
-            subprocess.run(command, cwd=root, check=True, env=child_env)
+            subprocess.run(
+                command, cwd=root, check=True, env=child_env,
+                stdout=subprocess.DEVNULL if quiet else None,
+                stderr=subprocess.STDOUT if quiet else None,
+            )
         except (OSError, subprocess.CalledProcessError) as exc:
             if label == "检查 pip":
                 print("检查 pip 失败，.venv 可能不完整；请检查或尝试较短路径，脚本不会删除 .venv。", file=sys.stderr)

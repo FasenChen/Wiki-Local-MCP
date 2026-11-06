@@ -77,6 +77,7 @@ def test_console_setup_creates_config_without_echoing_pat(project, monkeypatch, 
     assert values["ATLASSIAN_CONFLUENCE_URL"] == "https://wiki.example.invalid/confluence"
     assert values["ATLASSIAN_CONFLUENCE_PAT"] == "#sample=="
     captured = capsys.readouterr()
+    assert "====== Wiki 连接配置 ======" in captured.out
     assert "#sample==" not in captured.out + captured.err
 
 
@@ -157,6 +158,7 @@ def test_edit_retains_configuration_when_both_inputs_are_blank(project, monkeypa
     assert install.main() == 0
     assert path.read_text(encoding="utf-8") == VALID_CONFIG
     output = capsys.readouterr().out
+    assert "====== 更新配置 ======" in output
     assert "已保留现有配置" in output
     assert "已更新 .env" not in output
     assert "sample-secret" not in output
@@ -249,6 +251,56 @@ def test_installer_imports_without_installed_dependencies(project):
     assert result.returncode == 0, result.stderr
 
 
+def test_environment_heading_appears_before_venv_creation(project, monkeypatch, capsys):
+    install = installer()
+    (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
+    python = project / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+
+    def run(command, **kwargs):
+        if command[1:3] == ["-m", "venv"]:
+            output = capsys.readouterr().out
+            assert "====== 环境配置 ======" in output
+            assert "创建虚拟环境" in output
+            python.parent.mkdir(parents=True)
+            python.touch()
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(install.subprocess, "run", run)
+    assert install.run_install(project) == 0
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_pip_details_are_hidden_and_stage_result_is_visible(project, monkeypatch, capfd, exit_code):
+    install = installer()
+    (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
+    python = project / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    python.parent.mkdir(parents=True)
+    python.touch()
+    real_run = subprocess.run
+
+    def run(command, **kwargs):
+        if command[1:3] == ["-m", "pip"]:
+            code = (
+                "import sys; print('PIP_DETAIL_SENTINEL'); "
+                "print('PIP_ERROR_SENTINEL', file=sys.stderr); "
+                f"sys.exit({exit_code if 'install' in command else 0})"
+            )
+            return real_run([sys.executable, "-c", code], **kwargs)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(install.subprocess, "run", run)
+    assert install.run_install(project) == exit_code
+    captured = capfd.readouterr()
+    assert "PIP_DETAIL_SENTINEL" not in captured.out + captured.err
+    assert "PIP_ERROR_SENTINEL" not in captured.out + captured.err
+    assert "安装依赖" in captured.out
+    if exit_code:
+        assert "安装依赖失败" in captured.err
+        assert not (project / "MCP_SETUP.md").exists()
+    else:
+        assert "安装依赖完成" in captured.out
+
+
 @pytest.mark.parametrize(("platform", "venv_parts"), [
     ("win32", ("Scripts", "python.exe")),
     ("darwin", ("bin", "python")),
@@ -268,7 +320,7 @@ def test_install_runs_steps_in_isolated_project_with_platform_python(
     calls = []
     venv_python = project / ".venv" / Path(*venv_parts)
 
-    def run(command, *, cwd, check, env):
+    def run(command, *, cwd, check, env, **kwargs):
         calls.append((command, cwd, env))
         if command[1:3] == ["-m", "venv"]:
             venv_python.parent.mkdir(parents=True)
@@ -307,7 +359,7 @@ def test_venv_creation_failure_preserves_partial_data_and_mentions_shorter_path(
     (project / ".env").write_text(VALID_CONFIG, encoding="utf-8")
     marker = project / ".venv" / "keep.txt"
 
-    def fail(command, *, cwd, check, env):
+    def fail(command, *, cwd, check, env, **kwargs):
         marker.parent.mkdir()
         marker.write_text("keep", encoding="utf-8")
         raise subprocess.CalledProcessError(1, command)
@@ -326,7 +378,7 @@ def test_broken_pip_reports_path_guidance_without_deleting_venv(project, monkeyp
     venv_python.parent.mkdir(parents=True)
     venv_python.touch()
 
-    def fail(command, *, cwd, check, env):
+    def fail(command, *, cwd, check, env, **kwargs):
         raise subprocess.CalledProcessError(1, command)
 
     monkeypatch.setattr(install.subprocess, "run", fail)
@@ -346,7 +398,7 @@ def test_existing_valid_venv_is_reused(project, monkeypatch):
     marker.write_text("keep", encoding="utf-8")
     calls = []
 
-    def run(command, *, cwd, check, env):
+    def run(command, *, cwd, check, env, **kwargs):
         calls.append(command)
         return subprocess.CompletedProcess(command, 0)
 
@@ -385,7 +437,7 @@ def test_dependency_install_failure_stops_before_network_check(project, monkeypa
     venv_python.touch()
     calls = []
 
-    def run(command, *, cwd, check, env):
+    def run(command, *, cwd, check, env, **kwargs):
         calls.append(command)
         if "install" in command:
             raise subprocess.CalledProcessError(1, command)
@@ -408,7 +460,7 @@ def test_failed_checks_stop_install_and_report_failure(project, monkeypatch, cap
     venv_python.touch()
     calls = []
 
-    def run(command, *, cwd, check, env):
+    def run(command, *, cwd, check, env, **kwargs):
         calls.append(command)
         is_local = len(command) > 1 and command[1] == "-c"
         is_auth = "confluence_mcp.healthcheck" in command
