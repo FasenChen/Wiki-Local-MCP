@@ -189,7 +189,8 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
      - 来源：如果正文开头的引用块（`> 原文归档：…`、`> 来源：[名称](URL)`）里有这两个明确标签，队列卡片显示归档标签，右侧标出原文 URL 和上级目录，并与 Wiki 目标位置分开。只识别这种开头的标签行，正文中的其他链接一律不当作来源；无效或带凭据的 URL 不显示。队列中没有单独的来源字段。
      - 位置：新建页面显示目标父页面的完整路径和新页面名称；整页或章节更新显示原页面的完整路径（可点击打开）；评论显示所在页面。选中某条时才读取一次位置，列表自动刷新不会重复读取；读取失败会标明“暂不可用”，不影响批准。
      - 正文三个标签：“预览”（默认）是即将写入的正文，“源码”是提交给 Confluence 的 storage XHTML，“改动记录”是入队时保存的 diff（更新）或 Markdown 原文（新建/评论）。
-     - 预览的限制：它是本地近似渲染，只还原标题、段落、列表、表格、`code` 宏和外部图片（`ac:image` 的 `ac:alt` 会保留）。其他宏、附件、样式、布局和权限以 Confluence 页面为准，未还原的宏会在预览中标出。预览旁边常驻一行“本地近似预览”提示，展开可看完整说明。预览在隔离的沙箱中显示，不执行脚本、不能访问审批接口。正文里的链接显示为文字和地址，不可点击。
+     - 图片清单显示本次入队图片的来源、附件名称和字节数；预览使用入队时保存的图片快照。
+     - 预览的限制：它是本地近似渲染，只还原标题、段落、列表、表格、`code` 宏、外部图片和本次入队的图片快照（`ac:image` 的 `ac:alt` 会保留）。其他宏、已有附件、样式、布局和权限以 Confluence 页面为准，未还原的宏会在预览中标出。预览旁边常驻一行“本地近似预览”提示，展开可看完整说明。预览在隔离的沙箱中显示，不执行脚本、不能访问审批接口。正文里的链接显示为文字和地址，不可点击。
      - 右侧的“批准”会立即写入 Confluence，“全部批准”会先确认条数。会话失效或写入进行中时，所有写入按钮都会禁用。
    - 终端：`.\.venv\Scripts\confluence-mcp-review.exe approve <id>`。不带 id 表示审批全部 `pending`，
      需输入 `yes`，确认后立即写入。
@@ -197,7 +198,7 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
    `.\.venv\Scripts\confluence-mcp-review.exe`（等同 `list`）查看队列；`reject <id>` 可随时拒绝，无需交互式终端。
    macOS / Linux 将上述命令的 `.\.venv\Scripts\confluence-mcp-review.exe` 替换为 `./.venv/bin/confluence-mcp-review`，参数相同。
    `web` 和 `approve` 都要求设置 `CONFLUENCE_ENABLE_WRITES=true`。
-3. 批准即写入：每条操作最多发送一次，失败不自动重试。原来的 `apply_approved_operations` 工具已移除。
+3. 批准即写入：每条操作仅领取执行一次，页面与图片可能需要多次请求，失败不自动重试。原来的 `apply_approved_operations` 工具已移除。
    Agent 可以用 `list_queued_operations` 看队列，用 `cancel_queued_operations` 撤回尚未审批的操作。
 
 状态：`pending`（待审批）、`approved`（已批准）、`rejected`（已拒绝）、
@@ -220,8 +221,7 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
   能以同一 OS 用户运行、能附加 PTY 或读取 PAT 的 agent；Jira-local-MCP 也有同样的限制。
 - 审批页的令牌只在该 `web` 进程运行期间有效，只能挡住别的网页和别的机器，挡不住本机上权限相同的恶意进程。
 - SQLite 队列和审计日志不防同一系统用户的篡改，不是不可抵赖的审计，不要把它当作生产级审计记录。
-- 队列数据库有版本号（`PRAGMA user_version`）。遇到不认识的版本或表结构会拒绝打开并报出文件路径，
-  不做自动迁移；请先检查或移走该文件。
+- 队列数据库有版本号（`PRAGMA user_version`）。本版本会将版本 0/1 的既有队列升级到版本 2，新增图片快照表并保留原有操作与结果。旧版程序会拒绝版本 2 队列，升级时应一并重启 MCP 和审批进程。遇到不认识的版本或表结构会拒绝打开并报出文件路径，请先检查该文件。
 
 ## 能力
 
@@ -236,6 +236,7 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 - `get_page_history`：列出版本历史，或对两个版本做 Markdown diff（默认 4000 字符上限）。8.5.15 实测 `/rest/api/content/{id}/version` 可用；不可用时自动回退到 `/rest/experimental`。
 - `create_page` / `add_comment`（需开启写操作）：从 Markdown 创建页面或评论；默认 `dry_run=true` 只返回预览，`dry_run=false` 入队等待人工审批。
 - `update_page` / `update_page_section`（需开启写操作）：整页或单节更新；必须传 `expected_version`，整页 Markdown 更新默认拒绝含宏页面，单节更新只替换目标章节；`dry_run=false` 入队等待人工审批。
+- `create_page` / `update_page` / `update_page_section` 的 Markdown 图片会自动读取或下载，并在审批后上传为页面附件；相对路径需要 `image_base_dir`。详见下方“Markdown 图片”。
 - `move_page`（需开启写操作）：调整页面在页面树中的位置，不修改正文。`position="before"` / `"after"` 把页面放到同级页面 `target_page_id` 的前/后（会随之改到该页面的父页面下）；`position="append"` 把页面移到 `target_page_id` 下作为最后一个子页面。只支持同一空间内移动，不支持移到空间根目录。`dry_run=true` 返回移动前后的同级顺序；`dry_run=false` 入队等待人工审批，批准后向站点的 `/pages/movepage.action` 发送 POST 请求。要排好多个页面，按顺序入队多条移动，批准时按队列顺序执行。
 - `list_queued_operations` / `get_queued_operations` / `cancel_queued_operations` / `get_execution_log`（需开启写操作）：查看自己入队的操作和 diff 预览、撤回尚未审批（`pending`）的操作、读取已结束操作的结果。MCP 无法批准或执行任何操作，也无法撤回已批准的操作。
 - 页面内容可返回 Markdown、Confluence 渲染 HTML 或原始 storage XHTML。
@@ -265,6 +266,40 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 `section` 只支持 `markdown` / `storage` 输出；`html` 是整个 `body.view`，无法按章节切分。
 
 `html` 返回 Confluence 的 `body.view` 渲染片段；如果服务器未提供该扩展，则回退到 `body.storage`。`markdown` 从 storage XHTML 转换；Confluence 专有宏、图表和应用宏可能无法完全映射为 Markdown，需以 HTML 或原页面查看其渲染结果。
+
+## Markdown 图片
+
+创建、整页 Markdown 更新和章节更新会自动处理 Markdown 图片（含引用式图片）以及 HTML `<img>`。工具仍接收 Markdown 正文文本；调用方读取 MD 文件后，将其所在目录作为 `image_base_dir` 传入。
+
+```python
+create_page(
+    space_key="OPS",
+    title="部署说明",
+    content_markdown="## 部署流程\n\n![流程图](images/flow.png)",
+    image_base_dir=r"D:\文档",  # 原始 MD 文件位于 D:\文档，图片位于 D:\文档\images
+    dry_run=False,
+)
+
+update_page(
+    page_id="123456",
+    expected_version=3,
+    content="## 新流程\n\n![流程图](images/flow.png)",
+    image_base_dir=r"D:\文档",
+    dry_run=False,
+)
+```
+
+- 本地图片支持相对路径、绝对路径和本机 `file:` URL。相对路径按 `image_base_dir` 解析，支持 URL 编码的空格及中文路径。
+- `http(s)` 图片会下载后上传，`//host/path` 按 HTTPS 下载。下载跟随重定向，使用独立请求且不携带 Wiki PAT；需要登录、Cookie 或其他认证的图片应先保存到本地。
+- `dry_run=true` 会读取或下载图片并返回附件清单和正文预览。`dry_run=false` 将图片二进制快照与正文原子存入本地 SQLite 队列，审批后使用该快照，源文件随后变化或被移动也不会影响本次执行。任一图片读取或下载失败，整条操作会报错并停止入队。
+- 升级前已经入队的操作保留原请求；如需为这些操作补齐图片上传，请撤回后使用新工具重新入队。
+- 正文图片转换为 `<ac:image><ri:attachment ... /></ac:image>`。附件名称为 `mcp-<内容 SHA-256><图片扩展名>`，相同内容去重并复用目标页已有的同名附件，内容变化会生成新名称。既有附件保留在页面中。
+- 新页面先创建占位页取得 ID，再上传图片并发布最终正文，通常完成于版本 2。已有页面在上传前核对版本与空间，上传后仍以入队时绑定的下一版本提交正文，保留 Confluence 的版本冲突保护。
+- 页面与附件通过多次请求写入。中途失败可能保留已创建的占位页或已上传的附件；执行日志记录已知页面 ID、已上传/复用的附件及正在上传的名称。结果不明的请求需到 Wiki 核对，再决定后续操作。
+- 读取同页附件图片为 Markdown 时使用 `![说明](attachment:filename)`；更新时会保留此引用。它表示目标页面的已有附件。`content_format="storage"` 的整页更新和 `add_comment` 沿用原来的正文处理方式。
+- 图片需要非空内容及 `image/*` 类型（本地文件按扩展名识别）。`data:` 内嵌图片不在本次支持范围。上传权限、大小限制和最终图片渲染由 Confluence 决定；本地审批预览仅展示本次排队的图片快照，已有附件仍显示占位说明。
+
+上传使用 Data Center 的附件接口和 multipart 表单，正文使用 Confluence 附件图片引用格式，参见 [Atlassian 附件上传说明](https://support.atlassian.com/confluence/kb/using-the-confluence-rest-api-to-upload-an-attachment-to-one-or-more-pages/) 和 [Confluence Storage Format](https://confluence.atlassian.com/doc/confluence-storage-format-790796544.html)。
 
 ## 权限与故障定位
 

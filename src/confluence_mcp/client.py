@@ -176,6 +176,27 @@ class ConfluenceClient:
         self._validate_page_id(page_id)
         return self._request_json("PUT", f"content/{page_id}", json_body=payload)
 
+    def get_attachment(self, page_id: str, filename: str) -> dict[str, Any] | None:
+        self._validate_page_id(page_id)
+        response = self._get_json(
+            f"content/{page_id}/child/attachment", params={"filename": filename},
+        )
+        return next((item for item in response.get("results", []) if item.get("title") == filename), None)
+
+    def upload_attachment(
+        self, page_id: str, filename: str, data: bytes, content_type: str,
+    ) -> dict[str, Any]:
+        self._validate_page_id(page_id)
+        response = self._request_json(
+            "POST", f"content/{page_id}/child/attachment",
+            files={"file": (filename, data, content_type)},
+            headers={"X-Atlassian-Token": "no-check"},
+        )
+        for item in response.get("results", []):
+            if item.get("title") == filename and item.get("id"):
+                return item
+        raise ConfluenceAPIError("Confluence did not confirm the uploaded attachment; check the page attachments.")
+
     def move_page(self, page_id: str, position: str, target_id: str) -> dict[str, Any]:
         """Move a page before/after a sibling of target_id, or append it under target_id.
 
@@ -235,9 +256,13 @@ class ConfluenceClient:
         *,
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
+        files: dict[str, tuple[str, bytes, str]] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         try:
-            response = self._client.request(method, path, params=params, json=json_body)
+            response = self._client.request(
+                method, path, params=params, json=json_body, files=files, headers=headers,
+            )
         except httpx.TimeoutException as exc:
             raise ConfluenceAPIError("The Confluence request timed out.") from exc
         except httpx.ConnectError as exc:

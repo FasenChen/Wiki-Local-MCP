@@ -37,7 +37,11 @@ def _format(op: dict[str, Any]) -> str:
         f"{op['space_key']}/{op['page_id']}  v{op['version_before']}  {op['summary']}"
     )
     preview = "\n".join(f"    {line}" for line in op["preview"].splitlines())
-    return f"{header}\n{preview}" if preview else header
+    images = "\n".join(
+        f"    Image: {image['source']} -> {image['filename']} ({image['size_bytes']} bytes)"
+        for image in queue.attachment_summaries(op["id"])
+    )
+    return "\n".join(part for part in (header, images, preview) if part)
 
 
 def _show(ops: list[dict[str, Any]]) -> None:

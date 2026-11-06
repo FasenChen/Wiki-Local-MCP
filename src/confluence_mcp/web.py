@@ -24,7 +24,7 @@ CSP = (
 )
 # The rendered body is untrusted, so its document is sandboxed even when framed directly.
 PREVIEW_CSP = (
-    "default-src 'none'; img-src http: https:; style-src 'unsafe-inline'; base-uri 'none'; "
+    "default-src 'none'; img-src http: https: data:; style-src 'unsafe-inline'; base-uri 'none'; "
     "form-action 'none'; frame-ancestors 'self'; sandbox"
 )
 _ACTIVE = ("pending", "approved", "executing")
@@ -48,6 +48,7 @@ def _view(op: dict[str, Any]) -> dict[str, Any]:
     info = provenance(proposed_storage(op)) or {}
     view["collection"] = info.get("collection")
     view["source"] = info.get("source")
+    view["attachments"] = queue.attachment_summaries(op["id"])
     return view
 
 
@@ -187,7 +188,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/api/render":
             self._send(
                 200,
-                render_document(proposed_storage(op)).encode("utf-8"),
+                render_document(proposed_storage(op), queue.get_attachments(op["id"])).encode("utf-8"),
                 "text/html; charset=utf-8",
                 (("Content-Security-Policy", PREVIEW_CSP),),
                 frame="SAMEORIGIN",

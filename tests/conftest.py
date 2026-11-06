@@ -1,3 +1,4 @@
+import base64
 from unittest.mock import patch
 
 import pytest
@@ -39,6 +40,8 @@ class FakeClient:
         self.update_response = {}
         self.moved = []
         self.move_response = {}
+        self.attachments = {}
+        self.uploaded = []
 
     def get_page(self, page_id):
         return self.pages[page_id]
@@ -84,6 +87,15 @@ class FakeClient:
         self.updated.append(payload)
         return self.update_response
 
+    def get_attachment(self, page_id, filename):
+        return self.attachments.get((page_id, filename))
+
+    def upload_attachment(self, page_id, filename, data, content_type):
+        self.uploaded.append((page_id, filename, data, content_type))
+        attachment = {"id": str(1000 + len(self.uploaded)), "title": filename}
+        self.attachments[(page_id, filename)] = attachment
+        return attachment
+
     def move_page(self, page_id, position, target_id):
         self.moved.append((page_id, position, target_id))
         return self.move_response
@@ -102,3 +114,12 @@ def fake_client(monkeypatch):
     client = FakeClient()
     monkeypatch.setattr(server, "get_client", lambda: client)
     return client
+
+
+@pytest.fixture
+def image_file(tmp_path):
+    path = tmp_path / "图片.png"
+    path.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1cAAAAASUVORK5CYII="
+    ))
+    return path

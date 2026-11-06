@@ -58,7 +58,7 @@ PAGE = r"""<!doctype html>
   .newpage { margin-top: 4px; font-weight: 600; overflow-wrap: anywhere; }
   .url-text { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; word-break: break-all; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
-  .result { font-size: 12px; white-space: pre-wrap; margin: 0; color: var(--muted); }
+  .result { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; color: var(--muted); }
   #tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
   .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 12px; background: transparent; }
   .tab.selected { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
@@ -123,7 +123,7 @@ var REJECT_PATH = "/api/reject";
 var ACTIONS = { create_page: "新建页面", add_comment: "新增评论", update_page: "整页更新", update_page_section: "章节更新", move_page: "调整位置" };
 var LOCATION_LABELS = { comment: "评论所在页面", move: "被移动页面的当前路径", update: "原 Wiki 页面路径（批准后修改此页）" };
 var STATUSES = { pending: "待审批", approved: "已批准·未写入", rejected: "已拒绝", executing: "写入中", succeeded: "已成功", failed: "失败", indeterminate: "结果不明" };
-var LIMITS = "只还原标题、段落、列表、表格、代码块和外部图片。其他宏、附件、样式与权限以 Confluence 页面为准，未还原的宏会在预览中标出。预览在隔离沙箱中显示，不执行脚本。";
+var LIMITS = "只还原标题、段落、列表、表格、代码块、外部图片和本次入队的图片快照。其他宏、已有附件、样式与权限以 Confluence 页面为准，未还原的宏会在预览中标出。预览在隔离沙箱中显示，不执行脚本。";
 var SECTION_NOTE = "章节更新：下面是整页更新后的完整正文，包含本次替换的章节。";
 var NARROW = "(max-width: 760px)";
 var MIN_LIST = 260, MIN_DETAIL = 380, DEFAULT_SPLIT = 0.3;
@@ -181,6 +181,9 @@ function describe(op) {
     text += "\n结果: 页面 " + result.id;
     if (result.version != null) text += ", 版本 " + result.version;
     if (result.url) text += ", " + result.url;
+    if (result.uploaded_attachments && result.uploaded_attachments.length) text += "\n已上传图片: " + result.uploaded_attachments.join(", ");
+    if (result.reused_attachments && result.reused_attachments.length) text += "\n已复用图片: " + result.reused_attachments.join(", ");
+    if (result.uploading_attachment) text += "\n上传待核对: " + result.uploading_attachment;
   }
   return text;
 }
@@ -302,6 +305,14 @@ function renderHead(op) {
   var source = sourceBlock(op);
   if (source) context.appendChild(source);
   head.appendChild(context);
+  if (op.attachments && op.attachments.length) {
+    var images = el("details", "limits");
+    images.appendChild(el("summary", "", "随正文上传的图片（" + op.attachments.length + "）"));
+    op.attachments.forEach(function (image) {
+      images.appendChild(el("p", "url-text", image.source + " → " + image.filename + " · " + image.size_bytes + " 字节"));
+    });
+    head.appendChild(images);
+  }
   if (op.status === "pending" || op.status === "approved") {
     var actions = el("div", "actions");
     var approve = el("button", "primary", op.status === "approved" ? "写入" : "批准");

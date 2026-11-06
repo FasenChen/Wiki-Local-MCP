@@ -79,6 +79,19 @@ def test_ac_image_keeps_its_alt_text_on_the_paired_ri_url_shape():
     assert '<img src="https://img.example/arch.png"' in out
 
 
+def test_snapshot_svg_stays_in_an_image_and_arbitrary_data_urls_remain_blocked():
+    from confluence_mcp.images import ImageAttachment
+
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    image = ImageAttachment("test.svg", "https://images.example/test.svg", "image/svg+xml", svg)
+    out = preview.render_document(
+        '<ac:image><ri:attachment ri:filename="test.svg"/></ac:image>'
+        '<img src="data:text/html,unsafe"/>', [image],
+    )
+    assert "data:image/svg+xml;base64," in out
+    assert "<script" not in out and "data:text/html" not in out
+
+
 def test_code_cdata_split_across_sections_is_reassembled():
     # markdown_storage splits a literal "]]>" as "]]]]><![CDATA[>"; the body must read back intact.
     out = _html(

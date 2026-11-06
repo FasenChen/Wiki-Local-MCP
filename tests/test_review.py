@@ -47,6 +47,18 @@ def test_approve_refuses_without_tty(monkeypatch, capsys):
     assert queue.list_ops()[0]["status"] == "pending"
 
 
+def test_terminal_review_lists_image_source_filename_and_size(image_file):
+    from confluence_mcp.images import ImageAttachment
+
+    image = ImageAttachment("image.png", str(image_file), "image/png", image_file.read_bytes())
+    op_id = queue.enqueue(
+        "create_page", kind="create", page_id=None, space_key="OPS", version_before=None,
+        summary="Guide", preview="body", payload={"title": "Guide"}, attachments=[image],
+    )
+    text = review._format(queue.get_op(op_id))
+    assert str(image_file) in text and "image.png" in text and f"{len(image.data)} bytes" in text
+
+
 def test_approve_refuses_when_isatty_is_not_a_console(monkeypatch, capsys):
     op = _pending()
     monkeypatch.setattr("sys.stdin", TTYInput("yes\n"))

@@ -251,6 +251,31 @@ def test_unknown_operation_is_404_on_each_per_operation_route(call):
         assert call("GET", path).status == 404
 
 
+def test_queued_images_render_from_snapshot_and_state_lists_only_metadata(call, image_file):
+    import base64
+
+    from confluence_mcp.images import ImageAttachment
+
+    data = image_file.read_bytes()
+    image = ImageAttachment("queued.png", str(image_file), "image/png", data)
+    op_id = _pending(
+        payload={"body": {"storage": {"value": (
+            '<p><ac:image ac:alt="流程图"><ri:attachment ri:filename="queued.png"/></ac:image></p>'
+        )}}},
+        attachments=[image],
+    )
+    image_file.unlink()
+    state = json.loads(call("GET", "/api/state").body)
+    assert state["operations"][0]["attachments"] == [image.summary()]
+    assert "data" not in state["operations"][0]["attachments"][0]
+    rendered = call("GET", f"/api/render?id={op_id}")
+    body = rendered.body.decode("utf-8")
+    assert "data:image/png;base64," + base64.b64encode(data).decode("ascii") in body
+    assert 'alt="流程图"' in body and "onerror" not in body
+    assert "img-src http: https: data:" in rendered.headers["Content-Security-Policy"]
+    assert call("GET", f"/api/render?id={op_id}", cookie=False).status == 403
+
+
 def test_update_location_is_the_original_page_path(call, fake_client):
     fake_client.pages["42"] = _page("42", "Guide", [_page("1", "Root"), _page("7", "Ops")])
     op = _pending()
