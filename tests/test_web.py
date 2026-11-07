@@ -181,6 +181,31 @@ def test_split_divider_is_keyboard_operable():
     assert 'addEventListener("keydown"' in web_page.PAGE
 
 
+def test_page_controls_have_unique_ids_and_linked_tabs():
+    from html.parser import HTMLParser
+
+    class Controls(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.elements = []
+
+        def handle_starttag(self, tag, attrs):
+            self.elements.append((tag, dict(attrs)))
+
+    controls = Controls()
+    controls.feed(web_page.PAGE)
+    ids = [attrs["id"] for _, attrs in controls.elements if "id" in attrs]
+    assert len(ids) == len(set(ids))
+    assert {"search", "space-filter", "check-all", "approve-selected", "reject-selected"} <= set(ids)
+    tabs = [attrs for _, attrs in controls.elements if attrs.get("role") == "tab"]
+    assert len(tabs) == 3
+    assert all(attrs["aria-controls"] == "panel" for attrs in tabs)
+    assert sum(attrs["tabindex"] == "0" for attrs in tabs) == 1
+    [dialog] = [attrs for tag, attrs in controls.elements if tag == "dialog"]
+    assert dialog["aria-labelledby"] in ids
+    assert dialog["aria-describedby"] in ids
+
+
 STATE = "/api/state"
 
 
